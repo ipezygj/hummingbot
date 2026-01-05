@@ -111,12 +111,29 @@ class GatewayHttpClient:
             use_ssl = gateway_config.gateway_use_ssl
             if use_ssl:
                 # SSL connection with client certs
-                cert_path = gateway_config.certs_path
-                ssl_ctx = ssl.create_default_context(cafile=f"{cert_path}/ca_cert.pem")
-                ssl_ctx.load_cert_chain(certfile=f"{cert_path}/client_cert.pem",
-                                        keyfile=f"{cert_path}/client_key.pem",
-                                        password=Security.secrets_manager.password.get_secret_value())
-                conn = aiohttp.TCPConnector(ssl_context=ssl_ctx)
+                from hummingbot import root_path
+
+                cert_path = root_path() / "certs"
+                ca_file = str(cert_path / "ca_cert.pem")
+                cert_file = str(cert_path / "client_cert.pem")
+                key_file = str(cert_path / "client_key.pem")
+
+                password = Security.secrets_manager.password.get_secret_value()
+
+                ssl_ctx = ssl.create_default_context(cafile=ca_file)
+                ssl_ctx.load_cert_chain(
+                    certfile=cert_file,
+                    keyfile=key_file,
+                    password=password
+                )
+
+                # Create connector with explicit timeout settings
+                conn = aiohttp.TCPConnector(
+                    ssl=ssl_ctx,
+                    force_close=True,  # Don't reuse connections for debugging
+                    limit=100,
+                    limit_per_host=30,
+                )
             else:
                 # Non-SSL connection for development
                 conn = aiohttp.TCPConnector(ssl=False)
@@ -411,14 +428,15 @@ class GatewayHttpClient:
 
         parsed_response = {}
         try:
+            timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
             if method == "get":
                 if len(params) > 0:
                     if use_body:
-                        response = await client.get(url, json=params)
+                        response = await client.get(url, json=params, timeout=timeout)
                     else:
-                        response = await client.get(url, params=params)
+                        response = await client.get(url, params=params, timeout=timeout)
                 else:
-                    response = await client.get(url)
+                    response = await client.get(url, timeout=timeout)
             elif method == "post":
                 response = await client.post(url, json=params)
             elif method == 'put':
@@ -465,9 +483,10 @@ class GatewayHttpClient:
     async def ping_gateway(self) -> bool:
         try:
             response: Dict[str, Any] = await self.api_request("get", "", fail_silently=True)
-            return response.get("status") == "ok"
+            success = response.get("status") == "ok"
+            return success
         except Exception as e:
-            self.logger().error(f"Failed to ping gateway: {e}")
+            self.logger().error(f"✗ Failed to ping gateway: {type(e).__name__}: {e}", exc_info=True)
             return False
 
     async def get_gateway_status(self, fail_silently: bool = False) -> List[Dict[str, Any]]:
@@ -1375,7 +1394,15 @@ class GatewayHttpClient:
 
         :param connector: Connector name
         :param network: Network name
-        :param pool_data: Pool configuration data
+        :param pool_data: Pool configuration data. Required fields:
+            - address (str): Pool contract address
+            - type (str): Pool type ("amm" or "clmm")
+            - baseTokenAddress (str): Base token contract address
+            - quoteTokenAddress (str): Quote token contract address
+            Optional fields from pool-info:
+            - baseSymbol (str): Base token symbol
+            - quoteSymbol (str): Quote token symbol
+            - feePct (float): Pool fee percentage
         :return: Response with status
         """
         params = {
@@ -1643,7 +1670,12 @@ class GatewayHttpClient:
             fee_in_native = gas_resp.get("fee", 0)  # Use the fee directly from response
             native_token = gas_resp.get("feeAsset", chain.upper())  # Use feeAsset from response
 
-            return {
+            # Extract EIP-1559 specific fields if present
+            gas_type = gas_resp.get("gasType")
+            max_fee_per_gas = gas_resp.get("maxFeePerGas")
+            max_priority_fee_per_gas = gas_resp.get("maxPriorityFeePerGas")
+
+            result = {
                 "success": True,
                 "fee_per_unit": fee_per_unit,
                 "estimated_units": compute_units,
@@ -1651,6 +1683,16 @@ class GatewayHttpClient:
                 "fee_in_native": fee_in_native,
                 "native_token": native_token
             }
+
+            # Add EIP-1559 fields if present
+            if gas_type:
+                result["gas_type"] = gas_type
+            if max_fee_per_gas is not None:
+                result["max_fee_per_gas"] = max_fee_per_gas
+            if max_priority_fee_per_gas is not None:
+                result["max_priority_fee_per_gas"] = max_priority_fee_per_gas
+
+            return result
 
         except Exception as e:
             return {
