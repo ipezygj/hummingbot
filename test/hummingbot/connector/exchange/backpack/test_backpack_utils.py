@@ -1,6 +1,6 @@
 import unittest
 
-from hummingbot.connector.exchange.binance import binance_utils as utils
+from hummingbot.connector.exchange.backpack import backpack_utils as utils
 
 
 class BackpackUtilTestCases(unittest.TestCase):
@@ -12,7 +12,7 @@ class BackpackUtilTestCases(unittest.TestCase):
         cls.quote_asset = "HBOT"
         cls.trading_pair = f"{cls.base_asset}-{cls.quote_asset}"
         cls.hb_trading_pair = f"{cls.base_asset}-{cls.quote_asset}"
-        cls.ex_trading_pair = f"{cls.base_asset}-{cls.quote_asset}"
+        cls.ex_trading_pair = f"{cls.base_asset}_{cls.quote_asset}"
 
     def test_is_exchange_information_valid(self):
         invalid_info_1 = {
