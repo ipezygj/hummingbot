@@ -60,6 +60,14 @@ if command -v conda &> /dev/null; then
     conda activate hummingbot 2>/dev/null || true
 fi
 
+# Check for config password
+if [ -z "$CONFIG_PASSWORD" ]; then
+    echo -e "${YELLOW}Enter your Hummingbot config password:${NC}"
+    read -s CONFIG_PASSWORD
+    export CONFIG_PASSWORD
+    echo ""
+fi
+
 # Start hummingbot in background
 python bin/hummingbot_quickstart.py --headless &
 HUMMINGBOT_PID=$!

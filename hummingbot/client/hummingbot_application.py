@@ -226,7 +226,7 @@ class HummingbotApplication(*commands):
             await self.app.run()
 
     async def run_headless(self):
-        """Run in headless mode - just keep alive for API/MQTT/strategy execution."""
+        """Run in headless mode - keep alive for API/MQTT control and strategy execution."""
         try:
             self.logger().info("Starting Hummingbot in headless mode...")
 
@@ -236,20 +236,21 @@ class HummingbotApplication(*commands):
 
             if not mqtt_enabled and not api_enabled:
                 error_msg = (
-                    "ERROR: Either MQTT or API must be enabled for headless mode!\n"
+                    "ERROR: Either API or MQTT must be enabled for headless mode!\n"
                     "Without a control interface, there would be no way to control the bot.\n"
                     "Please enable one of the following in your config file:\n"
-                    "  - API: Set 'api_enabled: true' under the 'api' section\n"
-                    "  - MQTT: Set 'mqtt_autostart: true' under the 'mqtt_bridge' section"
+                    "  API:  Set 'api_enabled: true' under the 'api' section\n"
+                    "  MQTT: Set 'mqtt_autostart: true' under the 'mqtt_bridge' section"
                 )
                 self.logger().error(error_msg)
-                raise RuntimeError("MQTT or API is required for headless mode")
+                raise RuntimeError("API or MQTT is required for headless mode")
 
             if api_enabled:
                 api_config = self.client_config_map.api
-                self.logger().info(f"API server enabled at http://{api_config.api_host}:{api_config.api_port}")
+                self.logger().info(f"API server running at http://{api_config.api_host}:{api_config.api_port}")
+                self.logger().info(f"API docs available at http://{api_config.api_host}:{api_config.api_port}/docs")
             if mqtt_enabled:
-                self.logger().info("MQTT enabled - waiting for MQTT commands...")
+                self.logger().info("MQTT bridge enabled")
 
             self.logger().info("Bot is ready to receive commands")
 

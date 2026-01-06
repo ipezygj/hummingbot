@@ -275,6 +275,12 @@ def main():
     secrets_manager_cls = ETHKeyFileSecretManger
     client_config_map = load_client_config_map_from_file()
     if args.config_password is None:
+        if args.headless:
+            # In headless mode, password must be provided via --config-password or CONFIG_PASSWORD env var
+            print("ERROR: In headless mode, you must provide the config password via:")
+            print("  --config-password YOUR_PASSWORD")
+            print("  or CONFIG_PASSWORD=YOUR_PASSWORD environment variable")
+            return
         secrets_manager = login_prompt(secrets_manager_cls, style=load_style(client_config_map))
         if not secrets_manager:
             return
