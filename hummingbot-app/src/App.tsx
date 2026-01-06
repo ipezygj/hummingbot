@@ -5,7 +5,6 @@ import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Dashboard } from "@/components/pages/Dashboard";
 import { Connectors } from "@/components/pages/Connectors";
-import { Trading } from "@/components/pages/Trading";
 import { Strategies } from "@/components/pages/Strategies";
 import { Logs } from "@/components/pages/Logs";
 import { Settings } from "@/components/pages/Settings";
@@ -21,7 +20,6 @@ function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/connectors" element={<Connectors />} />
-              <Route path="/trading" element={<Trading />} />
               <Route path="/strategies" element={<Strategies />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/settings" element={<Settings />} />

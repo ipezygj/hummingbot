@@ -30,7 +30,8 @@ export interface AvailableConnector {
   display_name: string;
   connector_type: string;
   is_configured: boolean;
-  trading_type: string;
+  trading_type?: string;
+  required_credentials: string[];
 }
 
 export interface ConnectorBalance {
@@ -41,10 +42,12 @@ export interface ConnectorBalance {
 }
 
 export interface ConnectorStatus {
-  connector_name: string;
-  is_connected: boolean;
+  name: string;
+  is_ready: boolean;
+  status_dict: Record<string, boolean>;
   trading_pairs: string[];
   balances: ConnectorBalance[];
+  error?: string;
 }
 
 export interface OrderInfo {

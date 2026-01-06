@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Plug,
   PlayCircle,
-  LineChart,
   FileText,
   Settings,
 } from "lucide-react";
@@ -12,7 +11,6 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/connectors", icon: Plug, label: "Connectors" },
-  { to: "/trading", icon: LineChart, label: "Trading" },
   { to: "/strategies", icon: PlayCircle, label: "Strategies" },
   { to: "/logs", icon: FileText, label: "Logs" },
   { to: "/settings", icon: Settings, label: "Settings" },
