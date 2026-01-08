@@ -182,7 +182,6 @@ class BackpackExchange(ExchangePyBase):
                            price: Decimal,
                            **kwargs) -> Tuple[str, float]:
         order_result = None
-        instruction = "orderExecute"
         amount_str = f"{amount:f}"
         type_str = BackpackExchange.backpack_order_type(order_type)
         side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
@@ -202,6 +201,7 @@ class BackpackExchange(ExchangePyBase):
             order_result = await self._api_post(
                 path_url=CONSTANTS.ORDER_PATH_URL,
                 data=api_params,
+                header={"instruction": "orderExecute"},
                 is_auth_required=True)
             o_id = str(order_result["id"])
             transact_time = order_result["createdAt"] * 1e-3
@@ -218,7 +218,6 @@ class BackpackExchange(ExchangePyBase):
         return o_id, transact_time
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
-        instruction = "orderCancel"
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         api_params = {
             "symbol": symbol,
@@ -227,6 +226,7 @@ class BackpackExchange(ExchangePyBase):
         cancel_result = await self._api_delete(
             path_url=CONSTANTS.ORDER_PATH_URL,
             params=api_params,
+            header={"instruction": "orderCancel"},
             is_auth_required=True)
         if cancel_result.get("status") == "CANCELED":
             return True
@@ -540,21 +540,21 @@ class BackpackExchange(ExchangePyBase):
 
         account_info = await self._api_get(
             path_url=CONSTANTS.BALANCE_PATH_URL,
+            headers={"instruction": "balanceQuery"},
             is_auth_required=True)
 
-        balances = account_info["balances"]
-        for balance_entry in balances:
-            asset_name = balance_entry["asset"]
-            free_balance = Decimal(balance_entry["free"])
-            total_balance = Decimal(balance_entry["free"]) + Decimal(balance_entry["locked"])
-            self._account_available_balances[asset_name] = free_balance
-            self._account_balances[asset_name] = total_balance
-            remote_asset_names.add(asset_name)
+        if account_info:
+            for asset_name, balance_entry in account_info.items():
+                free_balance = Decimal(balance_entry["available"])
+                total_balance = Decimal(balance_entry["available"]) + Decimal(balance_entry["locked"])
+                self._account_available_balances[asset_name] = free_balance
+                self._account_balances[asset_name] = total_balance
+                remote_asset_names.add(asset_name)
 
-        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        for asset_name in asset_names_to_remove:
-            del self._account_available_balances[asset_name]
-            del self._account_balances[asset_name]
+            asset_names_to_remove = local_asset_names.difference(remote_asset_names)
+            for asset_name in asset_names_to_remove:
+                del self._account_available_balances[asset_name]
+                del self._account_balances[asset_name]
 
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
         mapping = bidict()
