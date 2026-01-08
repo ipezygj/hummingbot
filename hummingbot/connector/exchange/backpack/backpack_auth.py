@@ -1,7 +1,6 @@
 import base64
 import json
-from collections import OrderedDict
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
@@ -11,65 +10,73 @@ from hummingbot.core.web_assistant.connections.data_types import RESTMethod, RES
 
 
 class BackpackAuth(AuthBase):
+    DEFAULT_WINDOW_MS = 5000
+
     def __init__(self, api_key: str, secret_key: str, time_provider: TimeSynchronizer):
         self.api_key = api_key
         self.secret_key = secret_key
         self.time_provider = time_provider
 
     async def rest_authenticate(self, request: RESTRequest) -> RESTRequest:
-        """
-        Adds the server time and the signature to the request, required for authenticated interactions. It also adds
-        the required parameter in the request header.
-        :param request: the request to be configured for authenticated interaction
-        """
-        if request.method == RESTMethod.POST:
-            request.data = self.add_auth_to_params(params=json.loads(request.data))
-        else:
-            request.params = self.add_auth_to_params(params=request.params)
+        headers = dict(request.headers or {})
 
-        headers = {}
-        if request.headers is not None:
-            headers.update(request.headers)
-        headers.update(self.header_for_authentication())
+        # actually this instruction is passed through headers to avoid modifying the base class, then is popped
+        instruction = headers.pop("instruction", None)
+
+        sign_params = self._get_signable_params(request)
+
+        timestamp_ms = int(self.time_provider.time() * 1e3)
+        window_ms = self.DEFAULT_WINDOW_MS
+
+        signature = self._generate_signature(
+            instruction=instruction,
+            params=sign_params,
+            timestamp_ms=timestamp_ms,
+            window_ms=window_ms,
+        )
+
+        headers.update({
+            "X-Timestamp": str(timestamp_ms),
+            "X-Window": str(window_ms),
+            "X-API-Key": self.api_key,
+            "X-Signature": signature,
+        })
         request.headers = headers
 
         return request
 
     async def ws_authenticate(self, request: WSRequest) -> WSRequest:
-        """
-        This method is intended to configure a websocket request to be authenticated. Backpack does not use this
-        functionality
-        """
         return request  # pass-through
 
-    def add_auth_to_params(self,
-                           params: Dict[str, Any]):
-        timestamp = int(self.time_provider.time() * 1e3)
+    def _get_signable_params(self, request: RESTRequest) -> Dict[str, Any]:
+        """
+        Backpack: sign the request BODY (for POST/DELETE with body) OR QUERY params.
+        Do NOT include timestamp/window/signature here (those are appended separately).
+        """
+        if request.method == RESTMethod.POST and request.data:
+            return json.loads(request.data)
+        return dict(request.params or {})
 
-        request_params = OrderedDict(params or {})
-        request_params["timestamp"] = timestamp
-
-        signature = self._generate_signature(params=request_params)
-        request_params["signature"] = signature
-
-        return request_params
-
-    def header_for_authentication(self) -> Dict[str, str]:
-        return {
-            "X-Timestamp": str(self.time_provider.time()),
-            "X-Window": "5000",
-            "X-API-Key": self.api_key,
-            "X-Signature": self._generate_signature()
-        }
-
-    def _generate_signature(self, params: Dict[str, Any]) -> str:
-        message = "&".join(
+    def _generate_signature(
+        self,
+        params: Dict[str, Any],
+        timestamp_ms: int,
+        window_ms: int,
+        instruction: Optional[str] = None,
+    ) -> str:
+        params_message = "&".join(
             f"{k}={params[k]}" for k in sorted(params)
-        ).encode("utf-8")
+        )
+
+        sign_str = ""
+        if instruction:
+            sign_str = f"instruction={instruction}"
+        if params_message:
+            sign_str = f"{sign_str}&{params_message}" if sign_str else params_message
+
+        sign_str += f"{'&' if len(sign_str) > 0 else ''}timestamp={timestamp_ms}&window={window_ms}"
 
         seed = base64.b64decode(self.secret_key)
         private_key = ed25519.Ed25519PrivateKey.from_private_bytes(seed)
-
-        signature = private_key.sign(message)
-
-        return base64.b64encode(signature).decode()
+        signature_bytes = private_key.sign(sign_str.encode("utf-8"))
+        return base64.b64encode(signature_bytes).decode("utf-8")
