@@ -115,6 +115,42 @@ class BackpackExchange(ExchangePyBase):
     def supported_order_types(self):
         return [OrderType.LIMIT, OrderType.LIMIT_MAKER, OrderType.MARKET]
 
+    def buy(self, trading_pair: str, amount: Decimal, order_type=OrderType.LIMIT, price: Decimal = s_decimal_NaN, **kwargs) -> str:
+        """
+        Override to use simple uint32 order IDs for Backpack
+        """
+        from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
+        order_id = str(get_tracking_nonce() & 0xFFFFFFFF)  # Keep only 32 bits (uint32)
+        from hummingbot.core.data_type.common import TradeType
+        from hummingbot.core.utils.async_utils import safe_ensure_future
+        safe_ensure_future(self._create_order(
+            trade_type=TradeType.BUY,
+            order_id=order_id,
+            trading_pair=trading_pair,
+            amount=amount,
+            order_type=order_type,
+            price=price,
+            **kwargs))
+        return order_id
+
+    def sell(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.LIMIT, price: Decimal = s_decimal_NaN, **kwargs) -> str:
+        """
+        Override to use simple uint32 order IDs for Backpack
+        """
+        from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
+        order_id = str(get_tracking_nonce() & 0xFFFFFFFF)  # Keep only 32 bits (uint32)
+        from hummingbot.core.data_type.common import TradeType
+        from hummingbot.core.utils.async_utils import safe_ensure_future
+        safe_ensure_future(self._create_order(
+            trade_type=TradeType.SELL,
+            order_id=order_id,
+            trading_pair=trading_pair,
+            amount=amount,
+            order_type=order_type,
+            price=price,
+            **kwargs))
+        return order_id
+
     async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
         pairs_prices = await self._api_get(path_url=CONSTANTS.TICKER_BOOK_PATH_URL)
         return pairs_prices
