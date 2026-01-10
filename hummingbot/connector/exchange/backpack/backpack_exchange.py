@@ -19,7 +19,7 @@ from hummingbot.connector.utils import TradeFillOrderDetails, combine_to_hb_trad
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
-from hummingbot.core.data_type.trade_fee import DeductedFromReturnsTradeFee, TokenAmount, TradeFeeBase
+from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.event.events import MarketEvent, OrderFilledEvent
 from hummingbot.core.utils.async_utils import safe_gather
@@ -204,7 +204,7 @@ class BackpackExchange(ExchangePyBase):
                  price: Decimal = s_decimal_NaN,
                  is_maker: Optional[bool] = None) -> TradeFeeBase:
         is_maker = order_type is OrderType.LIMIT_MAKER
-        return DeductedFromReturnsTradeFee(percent=self.estimate_fee_pct(is_maker))
+        return AddedToCostTradeFee(percent=self.estimate_fee_pct(is_maker))
 
     def exchange_symbol_associated_to_pair(self, trading_pair: str) -> str:
         return trading_pair.replace("-", "_")
@@ -220,27 +220,29 @@ class BackpackExchange(ExchangePyBase):
                            order_type: OrderType,
                            price: Decimal,
                            **kwargs) -> Tuple[str, float]:
+        instruction = "orderExecute"
         order_result = None
         amount_str = f"{amount:f}"
-        type_str = BackpackExchange.backpack_order_type(order_type)
+        order_type_enum = BackpackExchange.backpack_order_type(order_type)
         side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        api_params = {"symbol": symbol,
-                      "side": side_str,
-                      "quantity": amount_str,
-                      "type": type_str,
-                      "newClientOrderId": order_id}
-        if order_type is OrderType.LIMIT or order_type is OrderType.LIMIT_MAKER:
+        api_params = {
+            "symbol": symbol,
+            "side": side_str,
+            "quantity": amount_str,
+            "clientId": int(order_id),
+            "orderType": order_type_enum
+        }
+        if order_type_enum == "Limit":
             price_str = f"{price:f}"
             api_params["price"] = price_str
-        if order_type == OrderType.LIMIT:
             api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
-
+        header = {"instruction": instruction}
         try:
             order_result = await self._api_post(
                 path_url=CONSTANTS.ORDER_PATH_URL,
                 data=api_params,
-                header={"instruction": "orderExecute"},
+                headers=header,
                 is_auth_required=True)
             o_id = str(order_result["id"])
             transact_time = order_result["createdAt"] * 1e-3
@@ -260,14 +262,15 @@ class BackpackExchange(ExchangePyBase):
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         api_params = {
             "symbol": symbol,
-            "origClientOrderId": order_id,
+            "clientId": int(order_id),
         }
+        header = {"instruction": "orderCancel"}
         cancel_result = await self._api_delete(
             path_url=CONSTANTS.ORDER_PATH_URL,
-            params=api_params,
-            header={"instruction": "orderCancel"},
+            data=api_params,
+            headers=header,
             is_auth_required=True)
-        if cancel_result.get("status") == "CANCELED":
+        if cancel_result.get("status") == "Cancelled":
             return True
         return False
 
@@ -440,15 +443,18 @@ class BackpackExchange(ExchangePyBase):
 
             tasks = []
             trading_pairs = self.trading_pairs
+            header = {"instruction": "fillHistoryQueryAll"}
             for trading_pair in trading_pairs:
                 params = {
-                    "symbol": self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+                    "symbol": self.exchange_symbol_associated_to_pair(trading_pair=trading_pair),
+                    "marketType": "SPOT",
                 }
                 if self._last_poll_timestamp > 0:
-                    params["startTime"] = str(query_time)
+                    params["from"] = str(query_time)
                 tasks.append(self._api_get(
                     path_url=CONSTANTS.MY_TRADES_PATH_URL,
                     params=params,
+                    headers=header,
                     is_auth_required=True))
 
             self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
@@ -470,46 +476,46 @@ class BackpackExchange(ExchangePyBase):
                         fee = TradeFeeBase.new_spot_fee(
                             fee_schema=self.trade_fee_schema(),
                             trade_type=tracked_order.trade_type,
-                            percent_token=trade["commissionAsset"],
-                            flat_fees=[TokenAmount(amount=Decimal(trade["commission"]), token=trade["commissionAsset"])]
+                            percent_token=trade["feeSymbol"],
+                            flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
                         )
                         trade_update = TradeUpdate(
-                            trade_id=str(trade["id"]),
+                            trade_id=str(trade["tradeId"]),
                             client_order_id=tracked_order.client_order_id,
                             exchange_order_id=exchange_order_id,
                             trading_pair=trading_pair,
                             fee=fee,
-                            fill_base_amount=Decimal(trade["qty"]),
-                            fill_quote_amount=Decimal(trade["quoteQty"]),
+                            fill_base_amount=Decimal(trade["quantity"]),
+                            fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
                             fill_price=Decimal(trade["price"]),
-                            fill_timestamp=trade["time"] * 1e-3,
+                            fill_timestamp=trade["timestamp"] * 1e-3,
                         )
                         self._order_tracker.process_trade_update(trade_update)
-                    elif self.is_confirmed_new_order_filled_event(str(trade["id"]), exchange_order_id, trading_pair):
+                    elif self.is_confirmed_new_order_filled_event(str(trade["tradeId"]), exchange_order_id, trading_pair):
                         # This is a fill of an order registered in the DB but not tracked any more
                         self._current_trade_fills.add(TradeFillOrderDetails(
                             market=self.display_name,
-                            exchange_trade_id=str(trade["id"]),
+                            exchange_trade_id=str(trade["tradeId"]),
                             symbol=trading_pair))
                         self.trigger_event(
                             MarketEvent.OrderFilled,
                             OrderFilledEvent(
-                                timestamp=float(trade["time"]) * 1e-3,
+                                timestamp=float(trade["timestamp"]) * 1e-3,
                                 order_id=self._exchange_order_ids.get(str(trade["orderId"]), None),
                                 trading_pair=trading_pair,
-                                trade_type=TradeType.BUY if trade["isBuyer"] else TradeType.SELL,
+                                trade_type=TradeType.BUY if trade["side"] == CONSTANTS.SIDE_BUY else TradeType.SELL,
                                 order_type=OrderType.LIMIT_MAKER if trade["isMaker"] else OrderType.LIMIT,
                                 price=Decimal(trade["price"]),
-                                amount=Decimal(trade["qty"]),
-                                trade_fee=DeductedFromReturnsTradeFee(
+                                amount=Decimal(trade["quantity"]),
+                                trade_fee=AddedToCostTradeFee(
                                     flat_fees=[
                                         TokenAmount(
-                                            trade["commissionAsset"],
-                                            Decimal(trade["commission"])
+                                            trade["feeSymbol"],
+                                            Decimal(trade["fee"])
                                         )
                                     ]
                                 ),
-                                exchange_trade_id=str(trade["id"])
+                                exchange_trade_id=str(trade["tradeId"])
                             ))
                         self.logger().info(f"Recreating missing trade in TradeFill: {trade}")
 
@@ -517,7 +523,9 @@ class BackpackExchange(ExchangePyBase):
         trade_updates = []
 
         if order.exchange_order_id is not None:
-            exchange_order_id = int(order.exchange_order_id)
+            # TODO: Replace instruction in headers by kwargs
+            instruction = {"instruction": "fillHistoryQueryAll"}
+            exchange_order_id = order.exchange_order_id
             trading_pair = self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
             all_fills_response = await self._api_get(
                 path_url=CONSTANTS.MY_TRADES_PATH_URL,
@@ -525,6 +533,7 @@ class BackpackExchange(ExchangePyBase):
                     "symbol": trading_pair,
                     "orderId": exchange_order_id
                 },
+                headers=instruction,
                 is_auth_required=True,
                 limit_id=CONSTANTS.MY_TRADES_PATH_URL)
 
@@ -552,21 +561,23 @@ class BackpackExchange(ExchangePyBase):
         return trade_updates
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
+        instruction = {"instruction": "orderQuery"}
         trading_pair = self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         updated_order_data = await self._api_get(
             path_url=CONSTANTS.ORDER_PATH_URL,
             params={
                 "symbol": trading_pair,
-                "origClientOrderId": tracked_order.client_order_id},
+                "clientId": tracked_order.client_order_id},
+            headers=instruction,
             is_auth_required=True)
 
         new_state = CONSTANTS.ORDER_STATE[updated_order_data["status"]]
 
         order_update = OrderUpdate(
             client_order_id=tracked_order.client_order_id,
-            exchange_order_id=str(updated_order_data["orderId"]),
+            exchange_order_id=str(updated_order_data["id"]),
             trading_pair=tracked_order.trading_pair,
-            update_timestamp=updated_order_data["updateTime"] * 1e-3,
+            update_timestamp=updated_order_data["createdAt"] * 1e-3,
             new_state=new_state,
         )
 
