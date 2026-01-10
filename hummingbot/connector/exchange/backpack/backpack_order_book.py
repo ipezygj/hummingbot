@@ -23,7 +23,7 @@ class BackpackOrderBook(OrderBook):
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.SNAPSHOT, {
             "trading_pair": msg["trading_pair"],
-            "update_id": msg["lastUpdateId"],
+            "update_id": int(msg["lastUpdateId"]),
             "bids": msg["bids"],
             "asks": msg["asks"]
         }, timestamp=timestamp)
@@ -60,14 +60,14 @@ class BackpackOrderBook(OrderBook):
         """
         if metadata:
             msg.update(metadata)
-        ts = msg["E"]  # in ms
+        ts = msg["data"]["E"]  # in ms
         return OrderBookMessage(OrderBookMessageType.TRADE, {
-            "trading_pair": cls._convert_trading_pair(msg["s"]),
-            "trade_type": float(TradeType.SELL.value) if msg["m"] else float(TradeType.BUY.value),
-            "trade_id": msg["t"],
+            "trading_pair": cls._convert_trading_pair(msg["data"]["s"]),
+            "trade_type": float(TradeType.SELL.value) if msg["data"]["m"] else float(TradeType.BUY.value),
+            "trade_id": msg["data"]["t"],
             "update_id": ts,
-            "price": msg["p"],
-            "amount": msg["q"]
+            "price": msg["data"]["p"],
+            "amount": msg["data"]["q"]
         }, timestamp=ts * 1e-3)
 
     @staticmethod
