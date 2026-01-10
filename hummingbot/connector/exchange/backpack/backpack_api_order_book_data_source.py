@@ -44,7 +44,7 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
         :return: the response from the exchange (JSON dictionary)
         """
         params = {
-            "symbol": await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair),
+            "symbol": self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair),
             "limit": "1000"
         }
 
@@ -55,7 +55,6 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
             method=RESTMethod.GET,
             throttler_limit_id=CONSTANTS.SNAPSHOT_PATH_URL,
         )
-
         return data
 
     async def _subscribe_channels(self, ws: WSAssistant):
@@ -67,9 +66,9 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
             trade_params = []
             depth_params = []
             for trading_pair in self._trading_pairs:
-                symbol = await self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                trade_params.append(f"trade.{symbol.lower()}")
-                depth_params.append(f"depth.{symbol.lower()}")
+                symbol = self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+                trade_params.append(f"trade.{symbol}")
+                depth_params.append(f"depth.{symbol}")
             payload = {
                 "method": "SUBSCRIBE",
                 "params": trade_params,
@@ -114,15 +113,15 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
         return snapshot_msg
 
     async def _parse_trade_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        if "result" not in raw_message:
-            trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["s"])
+        if "data" in raw_message and CONSTANTS.TRADE_EVENT_TYPE in raw_message.get("stream"):
+            trading_pair = self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["data"]["s"])
             trade_message = BackpackOrderBook.trade_message_from_exchange(
                 raw_message, {"trading_pair": trading_pair})
             message_queue.put_nowait(trade_message)
 
     async def _parse_order_book_diff_message(self, raw_message: Dict[str, Any], message_queue: asyncio.Queue):
-        if "result" not in raw_message:
-            trading_pair = await self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["s"])
+        if "data" in raw_message and CONSTANTS.DIFF_EVENT_TYPE in raw_message.get("stream"):
+            trading_pair = self._connector.trading_pair_associated_to_exchange_symbol(symbol=raw_message["data"]["s"])
             order_book_message: OrderBookMessage = BackpackOrderBook.diff_message_from_exchange(
                 raw_message, time.time(), {"trading_pair": trading_pair})
             message_queue.put_nowait(order_book_message)
