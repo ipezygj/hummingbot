@@ -209,6 +209,9 @@ class BackpackExchange(ExchangePyBase):
     def exchange_symbol_associated_to_pair(self, trading_pair: str) -> str:
         return trading_pair.replace("-", "_")
 
+    def trading_pair_associated_to_exchange_symbol(self, symbol: str) -> str:
+        return symbol.replace("_", "-")
+
     async def _place_order(self,
                            order_id: str,
                            trading_pair: str,

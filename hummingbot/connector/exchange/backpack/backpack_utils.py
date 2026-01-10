@@ -7,12 +7,12 @@ from hummingbot.client.config.config_data_types import BaseConnectorConfigMap
 from hummingbot.core.data_type.trade_fee import TradeFeeSchema
 
 CENTRALIZED = True
-EXAMPLE_PAIR = "SOL_USDC"
+EXAMPLE_PAIR = "SOL-USDC"
 
 DEFAULT_FEES = TradeFeeSchema(
     maker_percent_fee_decimal=Decimal("0.0008"),
     taker_percent_fee_decimal=Decimal("0.001"),
-    buy_percent_fee_deducted_from_returns=True
+    buy_percent_fee_deducted_from_returns=False
 )
 
 

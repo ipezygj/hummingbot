@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+import hummingbot.connector.exchange.backpack.backpack_constants as CONSTANTS
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.core.web_assistant.auth import AuthBase
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod, RESTRequest, WSRequest
@@ -40,6 +41,7 @@ class BackpackAuth(AuthBase):
             "X-Window": str(window_ms),
             "X-API-Key": self.api_key,
             "X-Signature": signature,
+            "X-BROKER-ID": str(CONSTANTS.BROKER_ID)
         })
         request.headers = headers
 
@@ -53,7 +55,7 @@ class BackpackAuth(AuthBase):
         Backpack: sign the request BODY (for POST/DELETE with body) OR QUERY params.
         Do NOT include timestamp/window/signature here (those are appended separately).
         """
-        if request.method == RESTMethod.POST and request.data:
+        if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
             return json.loads(request.data)
         return dict(request.params or {})
 

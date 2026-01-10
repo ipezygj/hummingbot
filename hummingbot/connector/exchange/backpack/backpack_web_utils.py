@@ -9,14 +9,15 @@ from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 
 
-def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
+def public_rest_url(path_url: str,
+                    domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
     """
     Creates a full URL for provided public REST endpoint
     :param path_url: a public REST endpoint
     :param domain: the Backpack domain to connect to. The default value is "exchange"
     :return: the full URL to the endpoint
     """
-    return CONSTANTS.REST_URL.format(domain) + CONSTANTS.PUBLIC_API_VERSION + path_url
+    return CONSTANTS.REST_URL.format(domain) + path_url
 
 
 def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
@@ -26,7 +27,7 @@ def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> s
     :param domain: the Backpack domain to connect to. The default value is "exchange"
     :return: the full URL to the endpoint
     """
-    return CONSTANTS.REST_URL.format(domain) + CONSTANTS.PRIVATE_API_VERSION + path_url
+    return CONSTANTS.REST_URL.format(domain) + path_url
 
 
 def build_api_factory(
