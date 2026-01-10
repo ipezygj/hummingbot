@@ -7,7 +7,7 @@ from bidict import bidict
 from hummingbot.connector.constants import s_decimal_NaN
 from hummingbot.connector.exchange.backpack import (
     backpack_constants as CONSTANTS,
-    backpack_utils,
+    backpack_utils as utils,
     backpack_web_utils as web_utils,
 )
 from hummingbot.connector.exchange.backpack.backpack_api_order_book_data_source import BackpackAPIOrderBookDataSource
@@ -51,7 +51,7 @@ class BackpackExchange(ExchangePyBase):
 
     @staticmethod
     def backpack_order_type(order_type: OrderType) -> str:
-        return order_type.name.upper()
+        return "Limit" if order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER] else "Market"
 
     @staticmethod
     def to_hb_order_type(backpack_type: str) -> OrderType:
@@ -316,17 +316,16 @@ class BackpackExchange(ExchangePyBase):
         trading_pair_rules = exchange_info_dict.copy()
         retval = []
         for rule in trading_pair_rules:
-            if not backpack_utils.is_exchange_information_valid(rule):
+            if not utils.is_exchange_information_valid(rule):
                 continue
             try:
                 trading_pair = self.trading_pair_associated_to_exchange_symbol(symbol=rule.get("symbol"))
-                price = Decimal(1)  # TODO
                 filters = rule.get("filters")
 
                 min_order_size = Decimal(filters["quantity"]["minQuantity"])
                 tick_size = Decimal(filters["price"]["tickSize"])
                 step_size = Decimal(filters["quantity"]["stepSize"])
-                min_notional = min_order_size * price
+                min_notional = min_order_size
 
                 retval.append(
                     TradingRule(trading_pair,
@@ -594,9 +593,10 @@ class BackpackExchange(ExchangePyBase):
 
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
         mapping = bidict()
-        for symbol_data in filter(backpack_utils.is_exchange_information_valid, exchange_info["symbols"]):
-            mapping[symbol_data["symbol"]] = combine_to_hb_trading_pair(base=symbol_data["baseAsset"],
-                                                                        quote=symbol_data["quoteAsset"])
+        for symbol_data in exchange_info:
+            if utils.is_exchange_information_valid(symbol_data):
+                mapping[symbol_data["symbol"]] = combine_to_hb_trading_pair(base=symbol_data["baseSymbol"],
+                                                                            quote=symbol_data["quoteSymbol"])
         self._set_trading_pair_symbol_map(mapping)
 
     async def _get_last_traded_price(self, trading_pair: str) -> float:
