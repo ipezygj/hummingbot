@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import TYPE_CHECKING, List, Optional
 
 from hummingbot.connector.exchange.backpack import backpack_constants as CONSTANTS
@@ -65,10 +64,20 @@ class BackpackAPIUserStreamDataSource(UserStreamTrackerDataSource):
         :param websocket_assistant: the websocket assistant used to connect to the exchange
         """
         try:
+            timestamp_ms = int(self._auth.time_provider.time() * 1e3)
+            signature = self._auth.generate_signature(params={},
+                                                      timestamp_ms=timestamp_ms,
+                                                      window_ms=self._auth.DEFAULT_WINDOW_MS,
+                                                      instruction="subscribe")
             orders_change_payload = {
-                "method": "SUBSCRIPTION",
+                "method": "SUBSCRIBE",
                 "params": [CONSTANTS.ALL_ORDERS_CHANNEL],
-                "id": 1
+                "signature": [
+                    self._auth.api_key,
+                    signature,
+                    str(timestamp_ms),
+                    str(self._auth.DEFAULT_WINDOW_MS)
+                ]
             }
             subscribe_order_change_request: WSJSONRequest = WSJSONRequest(payload=orders_change_payload)
 
