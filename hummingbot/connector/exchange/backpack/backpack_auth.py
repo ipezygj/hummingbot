@@ -29,12 +29,9 @@ class BackpackAuth(AuthBase):
         timestamp_ms = int(self.time_provider.time() * 1e3)
         window_ms = self.DEFAULT_WINDOW_MS
 
-        signature = self._generate_signature(
-            instruction=instruction,
-            params=sign_params,
-            timestamp_ms=timestamp_ms,
-            window_ms=window_ms,
-        )
+        signature = self.generate_signature(params=sign_params,
+                                            timestamp_ms=timestamp_ms, window_ms=window_ms,
+                                            instruction=instruction)
 
         headers.update({
             "X-Timestamp": str(timestamp_ms),
@@ -59,7 +56,7 @@ class BackpackAuth(AuthBase):
             return json.loads(request.data)
         return dict(request.params or {})
 
-    def _generate_signature(
+    def generate_signature(
         self,
         params: Dict[str, Any],
         timestamp_ms: int,

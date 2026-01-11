@@ -17,7 +17,7 @@ from hummingbot.connector.exchange_py_base import ExchangePyBase
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import TradeFillOrderDetails, combine_to_hb_trading_pair
 from hummingbot.core.data_type.common import OrderType, TradeType
-from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderUpdate, TradeUpdate
+from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
@@ -354,64 +354,93 @@ class BackpackExchange(ExchangePyBase):
         pass
 
     async def _user_stream_event_listener(self):
-        """
-        This functions runs in background continuously processing the events received from the exchange by the user
-        stream data source. It keeps reading events from the queue until the task is interrupted.
-        The events received are balance updates, order updates and trade events.
-        """
         async for event_message in self._iter_user_event_queue():
+            data = event_message.get("data")
+            if not isinstance(data, dict):
+                continue
+
+            event_type = data.get("e")
+            if event_type is None:
+                continue
+
             try:
-                event_type = event_message.get("e")
-                # Refer to https://github.com/backpack-exchange/backpack-official-api-docs/blob/master/user-data-stream.md
-                # As per the order update section in Backpack the ID of the order being canceled is under the "C" key
-                if event_type == "executionReport":
-                    execution_type = event_message.get("x")
-                    if execution_type != "CANCELED":
-                        client_order_id = event_message.get("c")
-                    else:
-                        client_order_id = event_message.get("C")
+                if event_type in {
+                    "orderAccepted",
+                    "orderCancelled",
+                    "orderExpired",
+                    "orderFill",
+                    "orderModified",
+                    "triggerPlaced",
+                    "triggerFailed",
+                }:
+                    exchange_order_id = str(data.get("i")) if data.get("i") is not None else None
+                    client_order_id = str(data.get("c")) if data.get("c") is not None else None
 
-                    if execution_type == "TRADE":
-                        tracked_order = self._order_tracker.all_fillable_orders.get(client_order_id)
-                        if tracked_order is not None:
-                            fee = TradeFeeBase.new_spot_fee(
-                                fee_schema=self.trade_fee_schema(),
-                                trade_type=tracked_order.trade_type,
-                                percent_token=event_message["N"],
-                                flat_fees=[TokenAmount(amount=Decimal(event_message["n"]), token=event_message["N"])]
-                            )
-                            trade_update = TradeUpdate(
-                                trade_id=str(event_message["t"]),
-                                client_order_id=client_order_id,
-                                exchange_order_id=str(event_message["i"]),
-                                trading_pair=tracked_order.trading_pair,
-                                fee=fee,
-                                fill_base_amount=Decimal(event_message["l"]),
-                                fill_quote_amount=Decimal(event_message["l"]) * Decimal(event_message["L"]),
-                                fill_price=Decimal(event_message["L"]),
-                                fill_timestamp=event_message["T"] * 1e-3,
-                            )
-                            self._order_tracker.process_trade_update(trade_update)
+                    # 1) Resolve tracked order
+                    tracked_order = None
 
-                    tracked_order = self._order_tracker.all_updatable_orders.get(client_order_id)
-                    if tracked_order is not None:
-                        order_update = OrderUpdate(
-                            trading_pair=tracked_order.trading_pair,
-                            update_timestamp=event_message["E"] * 1e-3,
-                            new_state=CONSTANTS.ORDER_STATE[event_message["X"]],
-                            client_order_id=client_order_id,
-                            exchange_order_id=str(event_message["i"]),
+                    if client_order_id is not None:
+                        tracked_order = self._order_tracker.all_updatable_orders.get(client_order_id)
+
+                    # Fallback: sometimes 'c' is absent; match by exchange_order_id
+                    if tracked_order is None and exchange_order_id is not None:
+                        for o in self._order_tracker.all_updatable_orders.values():
+                            if str(o.exchange_order_id) == exchange_order_id:
+                                tracked_order = o
+                                client_order_id = o.client_order_id  # recover internal id
+                                break
+
+                    # If still not found, nothing to update
+                    if tracked_order is None or client_order_id is None:
+                        continue
+
+                    # 2) Trade fill event
+                    if event_type == "orderFill":
+                        # Trade fields are only present on orderFill events
+                        fee_token = data.get("N")
+                        fee_amount = data.get("n")
+
+                        fee = TradeFeeBase.new_spot_fee(
+                            fee_schema=self.trade_fee_schema(),
+                            trade_type=tracked_order.trade_type,
+                            percent_token=fee_token,
+                            flat_fees=(
+                                [TokenAmount(amount=Decimal(str(fee_amount)), token=str(fee_token))]
+                                if fee_token is not None and fee_amount is not None
+                                else []
+                            ),
                         )
-                        self._order_tracker.process_order_update(order_update=order_update)
 
-                elif event_type == "outboundAccountPosition":
-                    balances = event_message["B"]
-                    for balance_entry in balances:
-                        asset_name = balance_entry["a"]
-                        free_balance = Decimal(balance_entry["f"])
-                        total_balance = Decimal(balance_entry["f"]) + Decimal(balance_entry["l"])
-                        self._account_available_balances[asset_name] = free_balance
-                        self._account_balances[asset_name] = total_balance
+                        fill_qty = Decimal(str(data["l"]))
+                        fill_price = Decimal(str(data["L"]))
+
+                        trade_update = TradeUpdate(
+                            trade_id=str(data["t"]),
+                            client_order_id=client_order_id,
+                            exchange_order_id=exchange_order_id,
+                            trading_pair=tracked_order.trading_pair,
+                            fee=fee,
+                            fill_base_amount=fill_qty,
+                            fill_quote_amount=fill_qty * fill_price,
+                            fill_price=fill_price,
+                            # Backpack timestamps are microseconds
+                            fill_timestamp=data["T"] * 1e-6,
+                        )
+                        self._order_tracker.process_trade_update(trade_update)
+
+                    # 3) Order state update
+                    raw_state = data.get("X")
+                    new_state = CONSTANTS.ORDER_STATE.get(raw_state, OrderState.FAILED)
+
+                    order_update = OrderUpdate(
+                        trading_pair=tracked_order.trading_pair,
+                        # Backpack event time is microseconds
+                        update_timestamp=data["E"] * 1e-6,
+                        new_state=new_state,
+                        client_order_id=client_order_id,
+                        exchange_order_id=exchange_order_id,
+                    )
+                    self._order_tracker.process_order_update(order_update=order_update)
 
             except asyncio.CancelledError:
                 raise
