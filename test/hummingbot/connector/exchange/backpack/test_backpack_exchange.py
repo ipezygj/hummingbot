@@ -494,10 +494,10 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         seconds_counter_mock.side_effect = [0, 0, 0]
 
         self.exchange._time_synchronizer.clear_time_offset_ms_samples()
-        url = web_utils.private_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
+        url = web_utils.public_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
-        response = {"serverTime": 1640000003000}
+        response = 1640000003000
 
         mock_api.get(regex_url,
                      body=json.dumps(response),
@@ -505,20 +505,14 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
         self.async_run_with_timeout(self.exchange._update_time_synchronizer())
 
-        self.assertEqual(response["serverTime"] * 1e-3, self.exchange._time_synchronizer.time())
+        self.assertEqual(response * 1e-3, self.exchange._time_synchronizer.time())
 
     @aioresponses()
     def test_update_time_synchronizer_failure_is_logged(self, mock_api):
-        request_sent_event = asyncio.Event()
-
-        url = web_utils.private_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
+        url = web_utils.public_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
-        response = {"code": -1121, "msg": "Dummy error"}
-
-        mock_api.get(regex_url,
-                     body=json.dumps(response),
-                     callback=lambda *args, **kwargs: request_sent_event.set())
+        mock_api.get(regex_url, status=500)
 
         self.async_run_with_timeout(self.exchange._update_time_synchronizer())
 
@@ -526,7 +520,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @aioresponses()
     def test_update_time_synchronizer_raises_cancelled_error(self, mock_api):
-        url = web_utils.private_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
+        url = web_utils.public_rest_url(CONSTANTS.SERVER_TIME_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
         mock_api.get(regex_url,
