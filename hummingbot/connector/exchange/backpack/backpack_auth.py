@@ -66,7 +66,7 @@ class BackpackAuth(AuthBase):
         params_message = "&".join(
             f"{k}={params[k]}" for k in sorted(params)
         )
-
+        params_message = params_message.replace("True", "true").replace("False", "false")
         sign_str = ""
         if instruction:
             sign_str = f"instruction={instruction}"

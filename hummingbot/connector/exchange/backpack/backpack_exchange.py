@@ -15,14 +15,19 @@ from hummingbot.connector.exchange.backpack.backpack_api_user_stream_data_source
 from hummingbot.connector.exchange.backpack.backpack_auth import BackpackAuth
 from hummingbot.connector.exchange_py_base import ExchangePyBase
 from hummingbot.connector.trading_rule import TradingRule
-from hummingbot.connector.utils import TradeFillOrderDetails, combine_to_hb_trading_pair
+from hummingbot.connector.utils import (
+    TradeFillOrderDetails,
+    combine_to_hb_trading_pair,
+    get_new_numeric_client_order_id,
+)
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.event.events import MarketEvent, OrderFilledEvent
-from hummingbot.core.utils.async_utils import safe_gather
+from hummingbot.core.utils.async_utils import safe_ensure_future, safe_gather
+from hummingbot.core.utils.tracking_nonce import NonceCreator
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
 
@@ -47,6 +52,7 @@ class BackpackExchange(ExchangePyBase):
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs
         self._last_trades_poll_backpack_timestamp = 1.0
+        self._nonce_creator = NonceCreator.for_milliseconds()
         super().__init__(balance_asset_limit, rate_limits_share_pct)
 
     @staticmethod
@@ -119,37 +125,42 @@ class BackpackExchange(ExchangePyBase):
         """
         Override to use simple uint32 order IDs for Backpack
         """
-        from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
-        order_id = str(get_tracking_nonce() & 0xFFFFFFFF)  # Keep only 32 bits (uint32)
-        from hummingbot.core.data_type.common import TradeType
-        from hummingbot.core.utils.async_utils import safe_ensure_future
-        safe_ensure_future(self._create_order(
-            trade_type=TradeType.BUY,
-            order_id=order_id,
-            trading_pair=trading_pair,
-            amount=amount,
-            order_type=order_type,
-            price=price,
-            **kwargs))
-        return order_id
+        new_order_id = get_new_numeric_client_order_id(nonce_creator=self._nonce_creator,
+                                                       max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN)
+        numeric_order_id = str(int(f"{CONSTANTS.HBOT_ORDER_ID_PREFIX}{new_order_id}"))
+
+        safe_ensure_future(
+            self._create_order(
+                trade_type=TradeType.BUY,
+                order_id=numeric_order_id,
+                trading_pair=trading_pair,
+                amount=amount,
+                order_type=order_type,
+                price=price,
+                **kwargs,
+            )
+        )
+        return numeric_order_id
 
     def sell(self, trading_pair: str, amount: Decimal, order_type: OrderType = OrderType.LIMIT, price: Decimal = s_decimal_NaN, **kwargs) -> str:
         """
         Override to use simple uint32 order IDs for Backpack
         """
-        from hummingbot.core.utils.tracking_nonce import get_tracking_nonce
-        order_id = str(get_tracking_nonce() & 0xFFFFFFFF)  # Keep only 32 bits (uint32)
-        from hummingbot.core.data_type.common import TradeType
-        from hummingbot.core.utils.async_utils import safe_ensure_future
-        safe_ensure_future(self._create_order(
-            trade_type=TradeType.SELL,
-            order_id=order_id,
-            trading_pair=trading_pair,
-            amount=amount,
-            order_type=order_type,
-            price=price,
-            **kwargs))
-        return order_id
+        new_order_id = get_new_numeric_client_order_id(nonce_creator=self._nonce_creator,
+                                                       max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN)
+        numeric_order_id = str(int(f"{CONSTANTS.HBOT_ORDER_ID_PREFIX}{new_order_id}"))
+        safe_ensure_future(
+            self._create_order(
+                trade_type=TradeType.SELL,
+                order_id=numeric_order_id,
+                trading_pair=trading_pair,
+                amount=amount,
+                order_type=order_type,
+                price=price,
+                **kwargs,
+            )
+        )
+        return numeric_order_id
 
     async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
         pairs_prices = await self._api_get(path_url=CONSTANTS.TICKER_BOOK_PATH_URL)
@@ -231,7 +242,8 @@ class BackpackExchange(ExchangePyBase):
             "side": side_str,
             "quantity": amount_str,
             "clientId": int(order_id),
-            "orderType": order_type_enum
+            "orderType": order_type_enum,
+            "postOnly": order_type == OrderType.LIMIT_MAKER
         }
         if order_type_enum == "Limit":
             price_str = f"{price:f}"
@@ -517,7 +529,7 @@ class BackpackExchange(ExchangePyBase):
                             fill_base_amount=Decimal(trade["quantity"]),
                             fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
                             fill_price=Decimal(trade["price"]),
-                            fill_timestamp=trade["timestamp"] * 1e-3,
+                            fill_timestamp=float(trade["timestamp"]) * 1e-3,
                         )
                         self._order_tracker.process_trade_update(trade_update)
                     elif self.is_confirmed_new_order_filled_event(str(trade["tradeId"]), exchange_order_id, trading_pair):
@@ -571,8 +583,8 @@ class BackpackExchange(ExchangePyBase):
                 fee = TradeFeeBase.new_spot_fee(
                     fee_schema=self.trade_fee_schema(),
                     trade_type=order.trade_type,
-                    percent_token=trade["commissionAsset"],
-                    flat_fees=[TokenAmount(amount=Decimal(trade["commission"]), token=trade["commissionAsset"])]
+                    percent_token=trade["feeSymbol"],
+                    flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
                 )
                 trade_update = TradeUpdate(
                     trade_id=str(trade["id"]),
@@ -580,10 +592,10 @@ class BackpackExchange(ExchangePyBase):
                     exchange_order_id=exchange_order_id,
                     trading_pair=trading_pair,
                     fee=fee,
-                    fill_base_amount=Decimal(trade["qty"]),
-                    fill_quote_amount=Decimal(trade["quoteQty"]),
+                    fill_base_amount=Decimal(trade["quantity"]),
+                    fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
                     fill_price=Decimal(trade["price"]),
-                    fill_timestamp=trade["time"] * 1e-3,
+                    fill_timestamp=float(trade["timestamp"]) * 1e-3,
                 )
                 trade_updates.append(trade_update)
 
