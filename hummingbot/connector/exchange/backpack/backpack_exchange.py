@@ -289,47 +289,6 @@ class BackpackExchange(ExchangePyBase):
     async def _format_trading_rules(self, exchange_info_dict: List[Dict[str, Any]]) -> List[TradingRule]:
         """
         Signature type modified from dict to list due to the new exchange info format.
-
-        Example:
-        {
-            "baseSymbol": "SOL",
-            "createdAt": "2025-01-21T06:34:54.691858",
-            "filters": {
-                "price": {
-                    "borrowEntryFeeMaxMultiplier": null,
-                    "borrowEntryFeeMinMultiplier": null,
-                    "maxImpactMultiplier": "1.03",
-                    "maxMultiplier": "1.25",
-                    "maxPrice": null,
-                    "meanMarkPriceBand": {
-                        "maxMultiplier": "1.03",
-                        "minMultiplier": "0.97"
-                    },
-                    "meanPremiumBand": null,
-                    "minImpactMultiplier": "0.97",
-                    "minMultiplier": "0.75",
-                    "minPrice": "0.01",
-                    "tickSize": "0.01"
-                },
-                "quantity": {
-                    "maxQuantity": null,
-                    "minQuantity": "0.01",
-                    "stepSize": "0.01"
-                }
-            },
-            "fundingInterval": null,
-            "fundingRateLowerBound": null,
-            "fundingRateUpperBound": null,
-            "imfFunction": null,
-            "marketType": "SPOT",
-            "mmfFunction": null,
-            "openInterestLimit": "0",
-            "orderBookState": "Open",
-            "positionLimitWeight": null,
-            "quoteSymbol": "USDC",
-            "symbol": "SOL_USDC",
-            "visible": true
-        }
         """
         trading_pair_rules = exchange_info_dict.copy()
         retval = []
