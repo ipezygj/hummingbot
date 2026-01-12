@@ -12,7 +12,7 @@ from hummingbot.connector.exchange.backpack import backpack_constants as CONSTAN
 from hummingbot.connector.exchange.backpack.backpack_exchange import BackpackExchange
 from hummingbot.connector.test_support.exchange_connector_test import AbstractExchangeConnectorTests
 from hummingbot.connector.trading_rule import TradingRule
-from hummingbot.connector.utils import get_new_client_order_id
+from hummingbot.connector.utils import get_new_client_order_id, get_new_numeric_client_order_id
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
@@ -345,7 +345,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             callback: Optional[Callable] = lambda *args, **kwargs: None) -> str:
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        response = self._order_status_request_canceled_mock_response(order=order)
+        response = self._order_cancelation_request_successful_mock_response(order=order)
         mock_api.get(regex_url, body=json.dumps(response), callback=callback)
         return url
 
@@ -431,7 +431,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             "E": 1694687692980000,
             "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
             "c": order.client_order_id,
-            "S": "Bid" if order.trade_type == TradeType.BUY else "Ask",
+            "S": self._get_side(order),
             "o": order.order_type.name.upper(),
             "f": "GTC",
             "q": str(order.amount),
@@ -478,7 +478,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         order_event["t"] = 378752121  # Trade ID
         order_event["l"] = str(order.average_executed_price)
         order_event["L"] = str(order.executed_amount_base)
-        order_event["m"] = order.order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]
+        order_event["m"] = self._is_maker(order)
         order_event["n"] = str(self.expected_fill_fee.flat_fees[0].amount)
         order_event["N"] = self.expected_fill_fee.flat_fees[0].token
         order_event["Z"] = str(order.executed_amount_quote)
@@ -855,11 +855,9 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             order_type=OrderType.LIMIT,
             price=Decimal("2"),
         )
-        expected_client_order_id = get_new_client_order_id(
-            is_buy=True,
-            trading_pair=self.trading_pair,
-            hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
-            max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
+        expected_client_order_id = get_new_numeric_client_order_id(
+            nonce_creator=self.exchange._nonce_creator,
+            max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN
         )
 
         self.assertEqual(result, expected_client_order_id)
@@ -1039,129 +1037,72 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         self.assertIn("X-Signature", request_headers)
         self.assertEqual("testAPIKey", request_headers["X-MBX-APIKEY"])
 
-    def _order_cancelation_request_successful_mock_response(self, order: InFlightOrder) -> Any:
-        return {
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "origClientOrderId": order.exchange_order_id or "dummyOrdId",
-            "orderId": 4,
-            "orderListId": -1,
-            "clientOrderId": order.client_order_id,
-            "price": str(order.price),
-            "origQty": str(order.amount),
-            "executedQty": str(Decimal("0")),
-            "cummulativeQuoteQty": str(Decimal("0")),
-            "status": "CANCELED",
-            "timeInForce": "GTC",
-            "type": "LIMIT",
-            "side": "BUY"
-        }
-
-    def _order_status_request_completely_filled_mock_response(self, order: InFlightOrder) -> Any:
-        return {
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "orderId": order.exchange_order_id,
-            "orderListId": -1,
-            "clientOrderId": order.client_order_id,
-            "price": str(order.price),
-            "origQty": str(order.amount),
-            "executedQty": str(order.amount),
-            "cummulativeQuoteQty": str(order.price + Decimal(2)),
-            "status": "FILLED",
-            "timeInForce": "GTC",
-            "type": "LIMIT",
-            "side": "BUY",
-            "stopPrice": "0.0",
-            "icebergQty": "0.0",
-            "time": 1499827319559,
-            "updateTime": 1499827319559,
-            "isWorking": True,
-            "origQuoteOrderQty": str(order.price * order.amount)
-        }
-
-    def _order_status_request_canceled_mock_response(self, order: InFlightOrder) -> Any:
-        return {
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "orderId": order.exchange_order_id,
-            "orderListId": -1,
-            "clientOrderId": order.client_order_id,
-            "price": str(order.price),
-            "origQty": str(order.amount),
-            "executedQty": "0.0",
-            "cummulativeQuoteQty": "10000.0",
-            "status": "CANCELED",
-            "timeInForce": "GTC",
-            "type": order.order_type.name.upper(),
-            "side": order.trade_type.name.upper(),
-            "stopPrice": "0.0",
-            "icebergQty": "0.0",
-            "time": 1499827319559,
-            "updateTime": 1499827319559,
-            "isWorking": True,
-            "origQuoteOrderQty": str(order.price * order.amount)
-        }
-
     def _order_status_request_open_mock_response(self, order: InFlightOrder) -> Any:
         return {
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "orderId": order.exchange_order_id,
-            "orderListId": -1,
-            "clientOrderId": order.client_order_id,
+            "clientId": order.client_order_id,
+            "createdAt": order.creation_timestamp,
+            "executedQuantity": '0',
+            "executedQuoteQuantity": '0',
+            "id": '26919130763',
+            "orderType": "Limit" if self._is_maker(order) else "Market",
+            "postOnly": order.order_type == OrderType.LIMIT_MAKER,
             "price": str(order.price),
-            "origQty": str(order.amount),
-            "executedQty": "0.0",
-            "cummulativeQuoteQty": "10000.0",
-            "status": "NEW",
-            "timeInForce": "GTC",
-            "type": order.order_type.name.upper(),
-            "side": order.trade_type.name.upper(),
-            "stopPrice": "0.0",
-            "icebergQty": "0.0",
-            "time": 1499827319559,
-            "updateTime": 1499827319559,
-            "isWorking": True,
-            "origQuoteOrderQty": str(order.price * order.amount)
+            "quantity": str(order.amount),
+            "reduceOnly": None,
+            "relatedOrderId": None,
+            "selfTradePrevention": 'RejectTaker',
+            "side": self._get_side(order),
+            "status": 'New',
+            "stopLossLimitPrice": None,
+            "stopLossTriggerBy": None,
+            "stopLossTriggerPrice": None,
+            "strategyId": None,
+            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+            "takeProfitLimitPrice": None,
+            "takeProfitTriggerBy": None,
+            "takeProfitTriggerPrice": None,
+            "timeInForce": 'GTC',
+            "triggerBy": None,
+            "triggerPrice": None,
+            "triggerQuantity": None,
+            "triggeredAt": None
         }
+
+    def _order_cancelation_request_successful_mock_response(self, order: InFlightOrder) -> Any:
+        order_cancelation_response = self._order_status_request_open_mock_response(order)
+        order_cancelation_response["status"] = "Cancelled"
+        return order_cancelation_response
+
+    def _order_status_request_completely_filled_mock_response(self, order: InFlightOrder) -> Any:
+        order_completely_filled_response = self._order_status_request_open_mock_response(order)
+        order_completely_filled_response["executedQuantity"] = str(order.executed_amount_base)
+        order_completely_filled_response["executedQuoteQuantity"] = str(order.executed_amount_quote)
+        order_completely_filled_response["status"] = "Filled"
+        return order_completely_filled_response
 
     def _order_status_request_partially_filled_mock_response(self, order: InFlightOrder) -> Any:
-        return {
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "orderId": order.exchange_order_id,
-            "orderListId": -1,
-            "clientOrderId": order.client_order_id,
-            "price": str(order.price),
-            "origQty": str(order.amount),
-            "executedQty": str(order.amount),
-            "cummulativeQuoteQty": str(self.expected_partial_fill_amount * order.price),
-            "status": "PARTIALLY_FILLED",
-            "timeInForce": "GTC",
-            "type": order.order_type.name.upper(),
-            "side": order.trade_type.name.upper(),
-            "stopPrice": "0.0",
-            "icebergQty": "0.0",
-            "time": 1499827319559,
-            "updateTime": 1499827319559,
-            "isWorking": True,
-            "origQuoteOrderQty": str(order.price * order.amount)
-        }
+        order_partially_filled_response = self._order_status_request_open_mock_response(order)
+        order_partially_filled_response["executedQuantity"] = str(self.expected_partial_fill_amount)
+        executed_quote_quantity = str(self.expected_partial_fill_amount * self.expected_partial_fill_price)
+        order_partially_filled_response["executedQuoteQuantity"] = executed_quote_quantity
+        order_partially_filled_response["status"] = "PartiallyFilled"
+        return order_partially_filled_response
 
-    def _order_fills_request_partial_fill_mock_response(self, order: InFlightOrder):
-        return [
-            {
-                "symbol": self.exchange_symbol_for_tokens(order.base_asset, order.quote_asset),
-                "id": self.expected_fill_trade_id,
-                "orderId": int(order.exchange_order_id),
-                "orderListId": -1,
-                "price": str(self.expected_partial_fill_price),
-                "qty": str(self.expected_partial_fill_amount),
-                "quoteQty": str(self.expected_partial_fill_amount * self.expected_partial_fill_price),
-                "commission": str(self.expected_fill_fee.flat_fees[0].amount),
-                "commissionAsset": self.expected_fill_fee.flat_fees[0].token,
-                "time": 1499865549590,
-                "isBuyer": True,
-                "isMaker": False,
-                "isBestMatch": True
-            }
-        ]
+    def _order_fill_template(self, order: InFlightOrder) -> Dict[str, Any]:
+        return {
+            "clientId": order.client_order_id,
+            "fee": str(self.expected_fill_fee.flat_fees[0].amount),
+            "feeSymbol": self.expected_fill_fee.flat_fees[0].token,
+            "isMaker": self._is_maker(order),
+            "orderId": order.exchange_order_id,
+            "price": str(order.price),
+            "quantity": str(order.amount),
+            "side": self._get_side(order),
+            "symbol": self.exchange_symbol_for_tokens(order.base_asset, order.quote_asset),
+            "systemOrderType": None,
+            "timestamp": 1499865549590,
+            "tradeId": self.expected_fill_trade_id
+        }
 
     def _order_fills_request_full_fill_mock_response(self, order: InFlightOrder):
         return [
@@ -1181,3 +1122,11 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
                 "isBestMatch": True
             }
         ]
+
+    @staticmethod
+    def _is_maker(order: InFlightOrder):
+        return order.order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]
+
+    @staticmethod
+    def _get_side(order: InFlightOrder):
+        return "Bid" if order.trade_type == TradeType.BUY else "Ask"
