@@ -1105,23 +1105,14 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         }
 
     def _order_fills_request_full_fill_mock_response(self, order: InFlightOrder):
-        return [
-            {
-                "symbol": self.exchange_symbol_for_tokens(order.base_asset, order.quote_asset),
-                "id": self.expected_fill_trade_id,
-                "orderId": int(order.exchange_order_id),
-                "orderListId": -1,
-                "price": str(order.price),
-                "qty": str(order.amount),
-                "quoteQty": str(order.amount * order.price),
-                "commission": str(self.expected_fill_fee.flat_fees[0].amount),
-                "commissionAsset": self.expected_fill_fee.flat_fees[0].token,
-                "time": 1499865549590,
-                "isBuyer": True,
-                "isMaker": False,
-                "isBestMatch": True
-            }
-        ]
+        order_fill = self._order_fill_template(order)
+        return [order_fill]
+
+    def _order_fills_request_partial_fill_mock_response(self, order: InFlightOrder):
+        partial_order_fill = self._order_fill_template(order)
+        partial_order_fill["quantity"] = str(self.expected_partial_fill_amount)
+        partial_order_fill["price"] = str(self.expected_partial_fill_price)
+        return [partial_order_fill]
 
     @staticmethod
     def _is_maker(order: InFlightOrder):
