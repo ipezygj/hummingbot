@@ -231,13 +231,13 @@ class BackpackExchange(ExchangePyBase):
                            order_type: OrderType,
                            price: Decimal,
                            **kwargs) -> Tuple[str, float]:
-        instruction = "orderExecute"
         order_result = None
         amount_str = f"{amount:f}"
         order_type_enum = BackpackExchange.backpack_order_type(order_type)
         side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
         api_params = {
+            "instruction": "orderExecute",
             "symbol": symbol,
             "side": side_str,
             "quantity": amount_str,
@@ -249,12 +249,10 @@ class BackpackExchange(ExchangePyBase):
             price_str = f"{price:f}"
             api_params["price"] = price_str
             api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
-        header = {"instruction": instruction}
         try:
             order_result = await self._api_post(
                 path_url=CONSTANTS.ORDER_PATH_URL,
                 data=api_params,
-                headers=header,
                 is_auth_required=True)
             o_id = str(order_result["id"])
             transact_time = order_result["createdAt"] * 1e-3
@@ -273,14 +271,13 @@ class BackpackExchange(ExchangePyBase):
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder):
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         api_params = {
+            "instruction": "orderCancel",
             "symbol": symbol,
             "clientId": int(order_id),
         }
-        header = {"instruction": "orderCancel"}
         cancel_result = await self._api_delete(
             path_url=CONSTANTS.ORDER_PATH_URL,
             data=api_params,
-            headers=header,
             is_auth_required=True)
         if cancel_result.get("status") == "Cancelled":
             return True
@@ -443,9 +440,9 @@ class BackpackExchange(ExchangePyBase):
 
             tasks = []
             trading_pairs = self.trading_pairs
-            header = {"instruction": "fillHistoryQueryAll"}
             for trading_pair in trading_pairs:
                 params = {
+                    "instruction": "fillHistoryQueryAll",
                     "symbol": self.exchange_symbol_associated_to_pair(trading_pair=trading_pair),
                     "marketType": "SPOT",
                 }
@@ -454,7 +451,6 @@ class BackpackExchange(ExchangePyBase):
                 tasks.append(self._api_get(
                     path_url=CONSTANTS.MY_TRADES_PATH_URL,
                     params=params,
-                    headers=header,
                     is_auth_required=True))
 
             self.logger().debug(f"Polling for order fills of {len(tasks)} trading pairs.")
@@ -523,17 +519,15 @@ class BackpackExchange(ExchangePyBase):
         trade_updates = []
 
         if order.exchange_order_id is not None:
-            # TODO: Replace instruction in headers by kwargs
-            instruction = {"instruction": "fillHistoryQueryAll"}
             exchange_order_id = order.exchange_order_id
             trading_pair = self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
             all_fills_response = await self._api_get(
                 path_url=CONSTANTS.MY_TRADES_PATH_URL,
                 params={
+                    "instruction": "fillHistoryQueryAll",
                     "symbol": trading_pair,
                     "orderId": exchange_order_id
                 },
-                headers=instruction,
                 is_auth_required=True,
                 limit_id=CONSTANTS.MY_TRADES_PATH_URL)
 
@@ -561,14 +555,13 @@ class BackpackExchange(ExchangePyBase):
         return trade_updates
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
-        instruction = {"instruction": "orderQuery"}
         trading_pair = self.exchange_symbol_associated_to_pair(trading_pair=tracked_order.trading_pair)
         updated_order_data = await self._api_get(
             path_url=CONSTANTS.ORDER_PATH_URL,
             params={
+                "instruction": "orderQuery",
                 "symbol": trading_pair,
                 "clientId": tracked_order.client_order_id},
-            headers=instruction,
             is_auth_required=True)
 
         new_state = CONSTANTS.ORDER_STATE[updated_order_data["status"]]
@@ -589,7 +582,7 @@ class BackpackExchange(ExchangePyBase):
 
         account_info = await self._api_get(
             path_url=CONSTANTS.BALANCE_PATH_URL,
-            headers={"instruction": "balanceQuery"},
+            params={"instruction": "balanceQuery"},
             is_auth_required=True)
 
         if account_info:

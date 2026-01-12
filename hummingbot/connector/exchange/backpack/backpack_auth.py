@@ -21,10 +21,7 @@ class BackpackAuth(AuthBase):
     async def rest_authenticate(self, request: RESTRequest) -> RESTRequest:
         headers = dict(request.headers or {})
 
-        # actually this instruction is passed through headers to avoid modifying the base class, then is popped
-        instruction = headers.pop("instruction", None)
-
-        sign_params = self._get_signable_params(request)
+        sign_params, instruction = self._get_signable_params(request)
 
         timestamp_ms = int(self.time_provider.time() * 1e3)
         window_ms = self.DEFAULT_WINDOW_MS
@@ -47,14 +44,20 @@ class BackpackAuth(AuthBase):
     async def ws_authenticate(self, request: WSRequest) -> WSRequest:
         return request  # pass-through
 
-    def _get_signable_params(self, request: RESTRequest) -> Dict[str, Any]:
+    def _get_signable_params(self, request: RESTRequest) -> tuple[Dict[str, Any], Optional[str]]:
         """
         Backpack: sign the request BODY (for POST/DELETE with body) OR QUERY params.
         Do NOT include timestamp/window/signature here (those are appended separately).
+        Returns a tuple of (params, instruction) where instruction is extracted from params.
         """
         if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
-            return json.loads(request.data)
-        return dict(request.params or {})
+            params = json.loads(request.data)
+        else:
+            params = dict(request.params or {})
+
+        # Extract instruction if present (don't include in signature)
+        instruction = params.pop("instruction", None)
+        return params, instruction
 
     def generate_signature(
         self,
