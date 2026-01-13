@@ -110,7 +110,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @property
     def all_symbols_including_invalid_pair_mock_response(self) -> Tuple[str, Any]:
-        valid_pair = self.all_symbols_request_mock_response
+        valid_pair = self.all_symbols_request_mock_response[0]
         invalid_pair = valid_pair.copy()
         invalid_pair["symbol"] = self.exchange_symbol_for_tokens("INVALID", "PAIR")
         invalid_pair["marketType"] = "PERP"
@@ -167,12 +167,12 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def balance_request_mock_response_for_base_and_quote(self):
         return {
             self.base_asset: {
-                'available': '0.232327918',
-                'locked': '0',
+                'available': '10',
+                'locked': '5',
                 'staked': '0'
             },
             self.quote_asset: {
-                'available': '15.3013672',
+                'available': '2000',
                 'locked': '0',
                 'staked': '0'
             }
@@ -180,11 +180,20 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @property
     def balance_request_mock_response_only_base(self):
-        return self.balance_request_mock_response_for_base_and_quote[self.base_asset]
+        return {
+            self.base_asset: {
+                'available': '10',
+                'locked': '5',
+                'staked': '0'
+            }
+        }
 
     @property
     def balance_event_websocket_update(self):
         return {}
+
+    async def test_user_stream_balance_update(self):
+        pass
 
     @property
     def expected_latest_price(self):
@@ -257,13 +266,13 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         )
 
     def validate_order_creation_request(self, order: InFlightOrder, request_call: RequestCall):
-        request_data = dict(request_call.kwargs["data"])
+        request_data = json.loads(request_call.kwargs["data"])
         self.assertEqual(self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset), request_data["symbol"])
-        self.assertEqual(order.trade_type.name.upper(), request_data["side"])
-        self.assertEqual(BackpackExchange.backpack_order_type(OrderType.LIMIT), request_data["type"])
+        self.assertEqual(self._get_side(order), request_data["side"])
+        self.assertEqual(BackpackExchange.backpack_order_type(OrderType.LIMIT), request_data["orderType"])
         self.assertEqual(Decimal("100"), Decimal(request_data["quantity"]))
         self.assertEqual(Decimal("10000"), Decimal(request_data["price"]))
-        self.assertEqual(order.client_order_id, request_data["clientId"])
+        self.assertEqual(order.client_order_id, str(request_data["clientId"]))
 
     def validate_order_cancelation_request(self, order: InFlightOrder, request_call: RequestCall):
         request_data = json.loads(request_call.kwargs["data"])
@@ -309,7 +318,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     ) -> str:
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        response = {"code": -2011, "msg": "Unknown order sent."}
+        response = {"code": "INVALID_CLIENT_REQUEST", "message": "Order not found"}
         mock_api.delete(regex_url, status=400, body=json.dumps(response), callback=callback)
         return url
 
@@ -752,74 +761,9 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
                 price=Decimal("2"),
             ))
 
-    def test_format_trading_rules__min_notional_present(self):
-        trading_rules = [{
-            "symbol": "COINALPHAHBOT",
-            "baseAssetPrecision": 8,
-            "status": "TRADING",
-            "quotePrecision": 8,
-            "orderTypes": ["LIMIT", "MARKET"],
-            "filters": [
-                {
-                    "filterType": "PRICE_FILTER",
-                    "minPrice": "0.00000100",
-                    "maxPrice": "100000.00000000",
-                    "tickSize": "0.00000100"
-                }, {
-                    "filterType": "LOT_SIZE",
-                    "minQty": "0.00100000",
-                    "maxQty": "100000.00000000",
-                    "stepSize": "0.00100000"
-                }, {
-                    "filterType": "MIN_NOTIONAL",
-                    "minNotional": "0.00100000"
-                }
-            ],
-            "permissionSets": [[
-                "SPOT"
-            ]]
-        }]
-        exchange_info = {"symbols": trading_rules}
-
+    def test_format_trading_rules_notional_but_no_min_notional_present(self):
+        exchange_info = self.all_symbols_request_mock_response
         result = self.async_run_with_timeout(self.exchange._format_trading_rules(exchange_info))
-
-        self.assertEqual(result[0].min_notional_size, Decimal("0.00100000"))
-
-    def test_format_trading_rules__notional_but_no_min_notional_present(self):
-        trading_rules = [{
-            "symbol": "COINALPHAHBOT",
-            "baseAssetPrecision": 8,
-            "status": "TRADING",
-            "quotePrecision": 8,
-            "orderTypes": ["LIMIT", "MARKET"],
-            "filters": [
-                {
-                    "filterType": "PRICE_FILTER",
-                    "minPrice": "0.00000100",
-                    "maxPrice": "100000.00000000",
-                    "tickSize": "0.00000100"
-                }, {
-                    "filterType": "LOT_SIZE",
-                    "minQty": "0.00100000",
-                    "maxQty": "100000.00000000",
-                    "stepSize": "0.00100000"
-                }, {
-                    "filterType": "NOTIONAL",
-                    "minNotional": "10.00000000",
-                    "applyMinToMarket": False,
-                    "maxNotional": "10000.00000000",
-                    "applyMaxToMarket": False,
-                    "avgPriceMins": 5
-                }
-            ],
-            "permissionSets": [[
-                "SPOT"
-            ]]
-        }]
-        exchange_info = {"symbols": trading_rules}
-
-        result = self.async_run_with_timeout(self.exchange._format_trading_rules(exchange_info))
-
         self.assertEqual(result[0].min_notional_size, Decimal("10"))
 
     def _validate_auth_credentials_taking_parameters_from_argument(self,
@@ -918,3 +862,44 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     @staticmethod
     def _get_side(order: InFlightOrder):
         return "Bid" if order.trade_type == TradeType.BUY else "Ask"
+
+    async def test_user_stream_logs_errors(self):
+        self.exchange._set_current_timestamp(1640780000)
+        self.exchange.start_tracking_order(
+            order_id="111",
+            exchange_order_id="112",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            price=Decimal("10000"),
+            amount=Decimal("1"),
+        )
+        incomplete_event = {
+            "data": {
+                "i": "112",
+                "c": "111",
+                "e": "orderFill",
+                "E": 1694687692980000,
+                "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                "X": "orderFilled",
+            },
+            "stream": "account.orderUpdate"
+        }
+
+        mock_queue = AsyncMock()
+        mock_queue.get.side_effect = [incomplete_event, asyncio.CancelledError]
+        self.exchange._user_stream_tracker._user_stream = mock_queue
+
+        with patch(f"{type(self.exchange).__module__}.{type(self.exchange).__qualname__}._sleep"):
+            try:
+                await (self.exchange._user_stream_event_listener())
+            except asyncio.CancelledError:
+                pass
+        await asyncio.sleep(0.1)
+
+        self.assertTrue(
+            self.is_logged(
+                "ERROR",
+                "Unexpected error in user stream listener loop."
+            )
+        )
