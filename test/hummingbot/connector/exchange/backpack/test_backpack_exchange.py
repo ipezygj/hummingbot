@@ -255,7 +255,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def create_exchange_instance(self):
         return BackpackExchange(
             backpack_api_key="testAPIKey",
-            backpack_api_secret="testSecret",
+            backpack_api_secret="sKmC5939f6W9/viyhwyaNHa0f7j5wSMvZsysW5BB9L4=",  # Valid 32-byte Ed25519 key
             trading_pairs=[self.trading_pair],
         )
 
