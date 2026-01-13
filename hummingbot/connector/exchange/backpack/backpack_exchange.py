@@ -259,8 +259,32 @@ class BackpackExchange(ExchangePyBase):
         except IOError as e:
             # TODO
             error_description = str(e)
-            is_server_overloaded = ("status is 503" in error_description
-                                    and "Unknown error, please check your request or try again later." in error_description)
+
+            # Check for LIMIT_MAKER post-only rejection
+            is_post_only_rejection = (
+                order_type == OrderType.LIMIT_MAKER
+                and "INVALID_ORDER" in error_description
+                and "Order would immediately match and take" in error_description
+            )
+
+            if is_post_only_rejection:
+                side = "BUY" if trade_type is TradeType.BUY else "SELL"
+                self.logger().warning(
+                    f"LIMIT_MAKER {side} order for {trading_pair} rejected: "
+                    f"Order price {price} would immediately match and take liquidity. "
+                    f"LIMIT_MAKER orders can only be placed as maker orders (post-only). "
+                    f"Try adjusting your price to ensure the order is not immediately executable."
+                )
+                raise ValueError(
+                    f"LIMIT_MAKER order would immediately match and take liquidity. "
+                    f"Price {price} crosses the spread for {side} order on {trading_pair}."
+                ) from e
+
+            # Check for server overload
+            is_server_overloaded = (
+                "status is 503" in error_description
+                and "Unknown error, please check your request or try again later." in error_description
+            )
             if is_server_overloaded:
                 o_id = "UNKNOWN"
                 transact_time = self._time_synchronizer.time()
