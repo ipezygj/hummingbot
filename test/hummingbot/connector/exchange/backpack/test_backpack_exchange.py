@@ -685,22 +685,24 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         self.assertNotEqual(result_buy, result_sell)
 
     def test_time_synchronizer_related_request_error_detection(self):
-        exception = IOError("Error executing request POST https://api.backpack.com/api/v3/order. HTTP status is 400. "
-                            "Error: {'code':-1021,'msg':'Timestamp for this request is outside of the recvWindow.'}")
+        # Test with Backpack's timestamp error format
+        exception = IOError("Error executing request POST https://api.backpack.exchange/api/v1/order. HTTP status is 400. "
+                            "Error: {'code':'INVALID_CLIENT_REQUEST','message':'Invalid timestamp: must be within 10 minutes of current time'}")
         self.assertTrue(self.exchange._is_request_exception_related_to_time_synchronizer(exception))
 
-        exception = IOError("Error executing request POST https://api.backpack.com/api/v3/order. HTTP status is 400. "
-                            "Error: {'code':-1021,'msg':'Timestamp for this request was 1000ms ahead of the server's "
-                            "time.'}")
+        # Test with lowercase timestamp keyword
+        exception = IOError("Error executing request POST https://api.backpack.exchange/api/v1/order. HTTP status is 400. "
+                            "Error: {'code':'INVALID_CLIENT_REQUEST','message':'timestamp is outside of the recvWindow'}")
         self.assertTrue(self.exchange._is_request_exception_related_to_time_synchronizer(exception))
 
-        exception = IOError("Error executing request POST https://api.backpack.com/api/v3/order. HTTP status is 400. "
-                            "Error: {'code':-1022,'msg':'Timestamp for this request was 1000ms ahead of the server's "
-                            "time.'}")
+        # Test with different error code (should not match)
+        exception = IOError("Error executing request POST https://api.backpack.exchange/api/v1/order. HTTP status is 400. "
+                            "Error: {'code':'INVALID_ORDER','message':'Invalid timestamp: must be within 10 minutes of current time'}")
         self.assertFalse(self.exchange._is_request_exception_related_to_time_synchronizer(exception))
 
-        exception = IOError("Error executing request POST https://api.backpack.com/api/v3/order. HTTP status is 400. "
-                            "Error: {'code':-1021,'msg':'Other error.'}")
+        # Test with correct code but no timestamp keyword (should not match)
+        exception = IOError("Error executing request POST https://api.backpack.exchange/api/v1/order. HTTP status is 400. "
+                            "Error: {'code':'INVALID_CLIENT_REQUEST','message':'Other error'}")
         self.assertFalse(self.exchange._is_request_exception_related_to_time_synchronizer(exception))
 
     @aioresponses()
