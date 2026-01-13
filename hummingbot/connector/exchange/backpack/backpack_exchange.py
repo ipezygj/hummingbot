@@ -521,37 +521,60 @@ class BackpackExchange(ExchangePyBase):
         if order.exchange_order_id is not None:
             exchange_order_id = order.exchange_order_id
             trading_pair = self.exchange_symbol_associated_to_pair(trading_pair=order.trading_pair)
-            all_fills_response = await self._api_get(
-                path_url=CONSTANTS.MY_TRADES_PATH_URL,
-                params={
+            try:
+                params = {
                     "instruction": "fillHistoryQueryAll",
                     "symbol": trading_pair,
                     "orderId": exchange_order_id
-                },
-                is_auth_required=True,
-                limit_id=CONSTANTS.MY_TRADES_PATH_URL)
+                }
+                all_fills_response = await self._api_get(
+                    path_url=CONSTANTS.MY_TRADES_PATH_URL,
+                    params=params,
+                    is_auth_required=True)
 
-            for trade in all_fills_response:
-                exchange_order_id = str(trade["orderId"])
-                fee = TradeFeeBase.new_spot_fee(
-                    fee_schema=self.trade_fee_schema(),
-                    trade_type=order.trade_type,
-                    percent_token=trade["feeSymbol"],
-                    flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
-                )
-                trade_update = TradeUpdate(
-                    trade_id=str(trade["id"]),
-                    client_order_id=order.client_order_id,
-                    exchange_order_id=exchange_order_id,
-                    trading_pair=trading_pair,
-                    fee=fee,
-                    fill_base_amount=Decimal(trade["quantity"]),
-                    fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
-                    fill_price=Decimal(trade["price"]),
-                    fill_timestamp=float(trade["timestamp"]) * 1e-3,
-                )
-                trade_updates.append(trade_update)
+                # Check for error responses from the exchange
+                if isinstance(all_fills_response, dict) and "code" in all_fills_response:
+                    code = all_fills_response["code"]
+                    if code == "INVALID_ORDER":
+                        # Order doesn't exist on exchange, mark as failed
+                        order_update = OrderUpdate(
+                            trading_pair=order.trading_pair,
+                            new_state=OrderState.FAILED,
+                            client_order_id=order.client_order_id,
+                            exchange_order_id=order.exchange_order_id,
+                            update_timestamp=self._time_synchronizer.time(),
+                            misc_updates={
+                                "error_type": "INVALID_ORDER",
+                                "error_message": all_fills_response.get("msg", "Order does not exist on exchange")
+                            }
+                        )
+                        self._order_tracker.process_order_update(order_update=order_update)
+                        return trade_updates
 
+                # Process trade fills
+                for trade in all_fills_response:
+                    exchange_order_id = str(trade["orderId"])
+                    fee = TradeFeeBase.new_spot_fee(
+                        fee_schema=self.trade_fee_schema(),
+                        trade_type=order.trade_type,
+                        percent_token=trade["feeSymbol"],
+                        flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
+                    )
+                    trade_update = TradeUpdate(
+                        trade_id=str(trade["id"]),
+                        client_order_id=order.client_order_id,
+                        exchange_order_id=exchange_order_id,
+                        trading_pair=trading_pair,
+                        fee=fee,
+                        fill_base_amount=Decimal(trade["quantity"]),
+                        fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
+                        fill_price=Decimal(trade["price"]),
+                        fill_timestamp=float(trade["timestamp"]) * 1e-3,
+                    )
+                    trade_updates.append(trade_update)
+            except IOError as ex:
+                if not self._is_request_exception_related_to_time_synchronizer(request_exception=ex):
+                    raise
         return trade_updates
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:

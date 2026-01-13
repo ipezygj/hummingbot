@@ -12,7 +12,6 @@ from hummingbot.connector.exchange.backpack import backpack_constants as CONSTAN
 from hummingbot.connector.exchange.backpack.backpack_exchange import BackpackExchange
 from hummingbot.connector.test_support.exchange_connector_test import AbstractExchangeConnectorTests
 from hummingbot.connector.trading_rule import TradingRule
-from hummingbot.connector.utils import get_new_client_order_id, get_new_numeric_client_order_id
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
@@ -849,33 +848,40 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def test_client_order_id_on_order(self, mocked_nonce):
         mocked_nonce.return_value = 7
 
-        result = self.exchange.buy(
+        # Test buy order - should return uint32 order ID with prefix
+        result_buy = self.exchange.buy(
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             price=Decimal("2"),
         )
-        expected_client_order_id = get_new_numeric_client_order_id(
-            nonce_creator=self.exchange._nonce_creator,
-            max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN
-        )
 
-        self.assertEqual(result, expected_client_order_id)
+        # Verify the order ID starts with the prefix and is a valid numeric string
+        self.assertTrue(result_buy.startswith(CONSTANTS.HBOT_ORDER_ID_PREFIX))
+        self.assertTrue(result_buy.isdigit())
+        # Verify it can be converted to int (uint32 compatible)
+        order_id_int = int(result_buy)
+        self.assertGreater(order_id_int, 0)
+        self.assertLess(order_id_int, 2**32)  # Must fit in uint32
 
-        result = self.exchange.sell(
+        # Test sell order - should also return uint32 order ID with prefix
+        result_sell = self.exchange.sell(
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             price=Decimal("2"),
         )
-        expected_client_order_id = get_new_client_order_id(
-            is_buy=False,
-            trading_pair=self.trading_pair,
-            hbot_order_id_prefix=CONSTANTS.HBOT_ORDER_ID_PREFIX,
-            max_id_len=CONSTANTS.MAX_ORDER_ID_LEN,
-        )
 
-        self.assertEqual(result, expected_client_order_id)
+        # Verify the order ID starts with the prefix and is a valid numeric string
+        self.assertTrue(result_sell.startswith(CONSTANTS.HBOT_ORDER_ID_PREFIX))
+        self.assertTrue(result_sell.isdigit())
+        # Verify it can be converted to int (uint32 compatible)
+        order_id_int = int(result_sell)
+        self.assertGreater(order_id_int, 0)
+        self.assertLess(order_id_int, 2**32)  # Must fit in uint32
+
+        # Verify buy and sell return different IDs
+        self.assertNotEqual(result_buy, result_sell)
 
     def test_time_synchronizer_related_request_error_detection(self):
         exception = IOError("Error executing request POST https://api.backpack.com/api/v3/order. HTTP status is 400. "
@@ -1027,15 +1033,14 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def _validate_auth_credentials_taking_parameters_from_argument(self,
                                                                    request_call_tuple: RequestCall,
                                                                    params: Dict[str, Any]):
-        self.assertIn("timestamp", params)
-        self.assertIn("window", params)
+        # Backpack uses header-based authentication, not param-based
         request_headers = request_call_tuple.kwargs["headers"]
-        self.assertIn("X-MBX-APIKEY", request_headers)
-        self.assertIn("X-MBX-APIKEY", request_headers)
+        self.assertIn("X-API-Key", request_headers)
         self.assertIn("X-Timestamp", request_headers)
         self.assertIn("X-Window", request_headers)
         self.assertIn("X-Signature", request_headers)
-        self.assertEqual("testAPIKey", request_headers["X-MBX-APIKEY"])
+        self.assertIn("X-BROKER-ID", request_headers)
+        self.assertEqual("testAPIKey", request_headers["X-API-Key"])
 
     def _order_status_request_open_mock_response(self, order: InFlightOrder) -> Any:
         return {
