@@ -23,6 +23,11 @@ class BackpackAuth(AuthBase):
 
         sign_params, instruction = self._get_signable_params(request)
 
+        if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
+            request.data = json.dumps(sign_params)
+        else:
+            request.params = sign_params
+
         timestamp_ms = int(self.time_provider.time() * 1e3)
         window_ms = self.DEFAULT_WINDOW_MS
 
