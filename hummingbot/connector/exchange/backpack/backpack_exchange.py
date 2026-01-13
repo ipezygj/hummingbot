@@ -252,7 +252,6 @@ class BackpackExchange(ExchangePyBase):
             o_id = str(order_result["id"])
             transact_time = order_result["createdAt"] * 1e-3
         except IOError as e:
-            # TODO
             error_description = str(e)
 
             # Check for LIMIT_MAKER post-only rejection
@@ -360,8 +359,8 @@ class BackpackExchange(ExchangePyBase):
                     "triggerPlaced",
                     "triggerFailed",
                 }:
-                    exchange_order_id = str(data.get("i")) if data.get("i") is not None else None
-                    client_order_id = str(data.get("c")) if data.get("c") is not None else None
+                    exchange_order_id = str(data.get("i"))
+                    client_order_id = str(data.get("c"))
 
                     # 1) Resolve tracked order
                     tracked_order = None
@@ -481,7 +480,7 @@ class BackpackExchange(ExchangePyBase):
                         flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
                     )
                     trade_update = TradeUpdate(
-                        trade_id=str(trade["id"]),
+                        trade_id=str(trade["tradeId"]),
                         client_order_id=order.client_order_id,
                         exchange_order_id=exchange_order_id,
                         trading_pair=trading_pair,

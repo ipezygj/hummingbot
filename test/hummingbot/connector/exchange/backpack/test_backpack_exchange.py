@@ -51,45 +51,47 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @property
     def all_symbols_request_mock_response(self):
-        return {
-            "baseSymbol": self.base_asset,
-            "createdAt": "2025-01-21T06:34:54.691858",
-            "filters": {
-                "price": {
-                    "borrowEntryFeeMaxMultiplier": None,
-                    "borrowEntryFeeMinMultiplier": None,
-                    "maxImpactMultiplier": "1.03",
-                    "maxMultiplier": "1.25",
-                    "maxPrice": None,
-                    "meanMarkPriceBand": {
-                        "maxMultiplier": "1.03",
-                        "minMultiplier": "0.97"
+        return [
+            {
+                "baseSymbol": self.base_asset,
+                "createdAt": "2025-01-21T06:34:54.691858",
+                "filters": {
+                    "price": {
+                        "borrowEntryFeeMaxMultiplier": None,
+                        "borrowEntryFeeMinMultiplier": None,
+                        "maxImpactMultiplier": "1.03",
+                        "maxMultiplier": "1.25",
+                        "maxPrice": None,
+                        "meanMarkPriceBand": {
+                            "maxMultiplier": "1.03",
+                            "minMultiplier": "0.97"
+                        },
+                        "meanPremiumBand": None,
+                        "minImpactMultiplier": "0.97",
+                        "minMultiplier": "0.75",
+                        "minPrice": "0.01",
+                        "tickSize": "0.01"
                     },
-                    "meanPremiumBand": None,
-                    "minImpactMultiplier": "0.97",
-                    "minMultiplier": "0.75",
-                    "minPrice": "0.01",
-                    "tickSize": "0.01"
+                    "quantity": {
+                        "maxQuantity": None,
+                        "minQuantity": "0.01",
+                        "stepSize": "0.01"
+                    }
                 },
-                "quantity": {
-                    "maxQuantity": None,
-                    "minQuantity": "0.01",
-                    "stepSize": "0.01"
-                }
-            },
-            "fundingInterval": None,
-            "fundingRateLowerBound": None,
-            "fundingRateUpperBound": None,
-            "imfFunction": None,
-            "marketType": "SPOT",
-            "mmfFunction": None,
-            "openInterestLimit": "0",
-            "orderBookState": "Open",
-            "positionLimitWeight": None,
-            "quoteSymbol": self.quote_asset,
-            "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "visible": True
-        }
+                "fundingInterval": None,
+                "fundingRateLowerBound": None,
+                "fundingRateUpperBound": None,
+                "imfFunction": None,
+                "marketType": "SPOT",
+                "mmfFunction": None,
+                "openInterestLimit": "0",
+                "orderBookState": "Open",
+                "positionLimitWeight": None,
+                "quoteSymbol": self.quote_asset,
+                "symbol": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                "visible": True
+            }
+        ]
 
     @property
     def latest_prices_request_mock_response(self):
@@ -261,19 +263,19 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         self.assertEqual(BackpackExchange.backpack_order_type(OrderType.LIMIT), request_data["type"])
         self.assertEqual(Decimal("100"), Decimal(request_data["quantity"]))
         self.assertEqual(Decimal("10000"), Decimal(request_data["price"]))
-        self.assertEqual(order.client_order_id, request_data["newClientOrderId"])
+        self.assertEqual(order.client_order_id, request_data["clientId"])
 
     def validate_order_cancelation_request(self, order: InFlightOrder, request_call: RequestCall):
-        request_data = dict(request_call.kwargs["params"])
+        request_data = json.loads(request_call.kwargs["data"])
         self.assertEqual(self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
                          request_data["symbol"])
-        self.assertEqual(order.client_order_id, request_data["origClientOrderId"])
+        self.assertEqual(order.client_order_id, str(request_data["clientId"]))
 
     def validate_order_status_request(self, order: InFlightOrder, request_call: RequestCall):
         request_params = request_call.kwargs["params"]
         self.assertEqual(self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
                          request_params["symbol"])
-        self.assertEqual(order.client_order_id, request_params["origClientOrderId"])
+        self.assertEqual(order.client_order_id, request_params["clientId"])
 
     def validate_trades_request(self, order: InFlightOrder, request_call: RequestCall):
         request_params = request_call.kwargs["params"]
@@ -426,61 +428,64 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     def order_event_for_new_order_websocket_update(self, order: InFlightOrder):
         return {
-            "e": "orderAccepted",
-            "E": 1694687692980000,
-            "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "c": order.client_order_id,
-            "S": self._get_side(order),
-            "o": order.order_type.name.upper(),
-            "f": "GTC",
-            "q": str(order.amount),
-            "Q": str(order.amount * order.price),
-            "p": str(order.price),
-            "P": "21",
-            "B": "LastPrice",
-            # "a": "30", # Only present if the order has a take-profit trigger price set
-            # "b": "10", # Only present if the order has a stop loss trigger price set.
-            "j": "30",
-            "k": "10",
-            # "d": "MarkPrice", # Only present if the order has a take profit trigger price set.
-            # "g": "IndexPrice", # Only present if the order has a stop loss trigger price set.
-            # "Y": "10", # Only present if the order is a trigger order.
-            "X": "New",
-            # "R": "PRICE_BAND", # Order expiry reason. Only present if the event is a orderExpired event.
-            "i": order.exchange_order_id,
-            # "t": 567, # Only present if the event is a orderFill event.
-            # "l": "1.23", # Only present if the event is a orderFill event.
-            "z": "321",
-            "Z": "123",
-            # "L": "20", # Only present if the event is a orderFill event.
-            # "m": True, # Only present if the event is a orderFill event.
-            # "n": "23", # Only present if the event is a orderFill event.
-            # "N": "USD", # Only present if the event is a orderFill event.
-            "V": "RejectTaker",
-            "T": 1694687692989999,
-            "O": "USER",
-            "I": "1111343026156135",
-            "H": 6023471188,
-            "y": True,
+            "data": {
+                "e": "orderAccepted",
+                "E": 1694687692980000,
+                "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                "c": order.client_order_id,
+                "S": self._get_side(order),
+                "o": order.order_type.name.upper(),
+                "f": "GTC",
+                "q": str(order.amount),
+                "Q": str(order.amount * order.price),
+                "p": str(order.price),
+                "P": "21",
+                "B": "LastPrice",
+                # "a": "30", # Only present if the order has a take-profit trigger price set
+                # "b": "10", # Only present if the order has a stop loss trigger price set.
+                "j": "30",
+                "k": "10",
+                # "d": "MarkPrice", # Only present if the order has a take profit trigger price set.
+                # "g": "IndexPrice", # Only present if the order has a stop loss trigger price set.
+                # "Y": "10", # Only present if the order is a trigger order.
+                "X": "New",
+                # "R": "PRICE_BAND", # Order expiry reason. Only present if the event is a orderExpired event.
+                "i": order.exchange_order_id,
+                # "t": 567, # Only present if the event is a orderFill event.
+                # "l": "1.23", # Only present if the event is a orderFill event.
+                "z": "321",
+                "Z": "123",
+                # "L": "20", # Only present if the event is a orderFill event.
+                # "m": True, # Only present if the event is a orderFill event.
+                # "n": "23", # Only present if the event is a orderFill event.
+                # "N": "USD", # Only present if the event is a orderFill event.
+                "V": "RejectTaker",
+                "T": 1694687692989999,
+                "O": "USER",
+                "I": "1111343026156135",
+                "H": 6023471188,
+                "y": True,
+            },
+            "stream": "account.orderUpdate"
         }
 
     def order_event_for_canceled_order_websocket_update(self, order: InFlightOrder):
         order_event = self.order_event_for_new_order_websocket_update(order)
-        order_event["X"] = "Cancelled"
-        order_event["e"] = "orderCancelled"
+        order_event["data"]["X"] = "Cancelled"
+        order_event["data"]["e"] = "orderCancelled"
         return order_event
 
     def order_event_for_full_fill_websocket_update(self, order: InFlightOrder):
         order_event = self.order_event_for_new_order_websocket_update(order)
-        order_event["X"] = "Filled"
-        order_event["e"] = "orderFill"
-        order_event["t"] = 378752121  # Trade ID
-        order_event["l"] = str(order.average_executed_price)
-        order_event["L"] = str(order.executed_amount_base)
-        order_event["m"] = self._is_maker(order)
-        order_event["n"] = str(self.expected_fill_fee.flat_fees[0].amount)
-        order_event["N"] = self.expected_fill_fee.flat_fees[0].token
-        order_event["Z"] = str(order.executed_amount_quote)
+        order_event["data"]["X"] = "Filled"
+        order_event["data"]["e"] = "orderFill"
+        order_event["data"]["t"] = 378752121  # Trade ID
+        order_event["data"]["l"] = str(order.amount)
+        order_event["data"]["L"] = str(order.price)
+        order_event["data"]["m"] = self._is_maker(order)
+        order_event["data"]["n"] = str(self.expected_fill_fee.flat_fees[0].amount)
+        order_event["data"]["N"] = self.expected_fill_fee.flat_fees[0].token
+        order_event["data"]["Z"] = str(order.amount)
         return order_event
 
     def trade_event_for_full_fill_websocket_update(self, order: InFlightOrder):
