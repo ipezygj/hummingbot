@@ -409,7 +409,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     ) -> List[str]:
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        response = {"code": -2013, "msg": "Order does not exist."}
+        response = {"code": "INVALID_ORDER", "message": "Order does not exist"}
         mock_api.get(regex_url, body=json.dumps(response), status=400, callback=callback)
         return [url]
 
@@ -594,38 +594,29 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         order = self.exchange.in_flight_orders["OID1"]
 
         event_message = {
-            "e": "executionReport",
-            "E": 1499405658658,
-            "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
-            "c": order.client_order_id,
-            "S": "BUY",
-            "o": "LIMIT",
-            "f": "GTC",
-            "q": "1.00000000",
-            "p": "1000.00000000",
-            "P": "0.00000000",
-            "F": "0.00000000",
-            "g": -1,
-            "C": "",
-            "x": "REJECTED",
-            "X": "REJECTED",
-            "r": "NONE",
-            "i": int(order.exchange_order_id),
-            "l": "0.00000000",
-            "z": "0.00000000",
-            "L": "0.00000000",
-            "n": "0",
-            "N": None,
-            "T": 1499405658657,
-            "t": 1,
-            "I": 8641984,
-            "w": True,
-            "m": False,
-            "M": False,
-            "O": 1499405658657,
-            "Z": "0.00000000",
-            "Y": "0.00000000",
-            "Q": "0.00000000"
+            "data": {
+                "e": "triggerFailed",
+                "E": 1694687692980000,
+                "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                "c": order.client_order_id,
+                "S": self._get_side(order),
+                "o": order.order_type.name.upper(),
+                "f": "GTC",
+                "q": str(order.amount),
+                "Q": str(order.amount * order.price),
+                "p": str(order.price),
+                "X": "TriggerFailed",
+                "i": order.exchange_order_id,
+                "z": "0",
+                "Z": "0",
+                "V": "RejectTaker",
+                "T": 1694687692989999,
+                "O": "USER",
+                "I": "1111343026156135",
+                "H": 6023471188,
+                "y": True,
+            },
+            "stream": "account.orderUpdate"
         }
 
         mock_queue = AsyncMock()
