@@ -707,7 +707,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         mock_api.post(regex_url, body=json.dumps(mock_response), status=503)
 
         o_id, transact_time = self.async_run_with_timeout(self.exchange._place_order(
-            order_id="test_order_id",
+            order_id="1001",  # Must be numeric string since Backpack uses int(order_id)
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             trade_type=TradeType.BUY,
@@ -724,14 +724,15 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        mock_response = {"code": -1003, "msg": "Service Unavailable."}
+        # Backpack uses string error codes and "message" field, not Binance's numeric codes and "msg"
+        mock_response = {"code": "SERVICE_UNAVAILABLE", "message": "Service Unavailable."}
         mock_api.post(regex_url, body=json.dumps(mock_response), status=503)
 
         self.assertRaises(
             IOError,
             self.async_run_with_timeout,
             self.exchange._place_order(
-                order_id="test_order_id",
+                order_id="1002",  # Must be numeric string since Backpack uses int(order_id)
                 trading_pair=self.trading_pair,
                 amount=Decimal("1"),
                 trade_type=TradeType.BUY,
@@ -739,14 +740,14 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
                 price=Decimal("2"),
             ))
 
-        mock_response = {"code": -1003, "msg": "Internal error; unable to process your request. Please try again."}
+        mock_response = {"code": "INTERNAL_ERROR", "message": "Internal error; unable to process your request. Please try again."}
         mock_api.post(regex_url, body=json.dumps(mock_response), status=503)
 
         self.assertRaises(
             IOError,
             self.async_run_with_timeout,
             self.exchange._place_order(
-                order_id="test_order_id",
+                order_id="1003",  # Must be numeric string since Backpack uses int(order_id)
                 trading_pair=self.trading_pair,
                 amount=Decimal("1"),
                 trade_type=TradeType.BUY,

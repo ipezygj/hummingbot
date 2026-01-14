@@ -281,7 +281,7 @@ class BackpackExchange(ExchangePyBase):
 
             # Check for server overload
             is_server_overloaded = (
-                "status is 503" in error_description
+                "503" in error_description
                 and "Unknown error, please check your request or try again later." in error_description
             )
             if is_server_overloaded:
@@ -343,7 +343,7 @@ class BackpackExchange(ExchangePyBase):
         return retval
 
     async def _status_polling_loop_fetch_updates(self):
-        await self._update_order_fills_from_trades()
+        # TODO: Reimplement in this method something for balance updates? We have no WS
         await super()._status_polling_loop_fetch_updates()
 
     async def _update_trading_fees(self):
@@ -440,6 +440,7 @@ class BackpackExchange(ExchangePyBase):
                         exchange_order_id=exchange_order_id,
                     )
                     self._order_tracker.process_order_update(order_update=order_update)
+                    # TODO: Implement balance update via REST
 
             except asyncio.CancelledError:
                 raise
