@@ -128,8 +128,9 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     def _channel_originating_message(self, event_message: Dict[str, Any]) -> str:
         channel = ""
-        if "result" not in event_message:
-            event_type = event_message.get("e")
-            channel = (self._diff_messages_queue_key if event_type == CONSTANTS.DIFF_EVENT_TYPE
-                       else self._trade_messages_queue_key)
+        stream = event_message.get("stream", "")
+        if CONSTANTS.DIFF_EVENT_TYPE in stream:
+            channel = self._diff_messages_queue_key
+        elif CONSTANTS.TRADE_EVENT_TYPE in stream:
+            channel = self._trade_messages_queue_key
         return channel

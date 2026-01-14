@@ -43,11 +43,11 @@ class BackpackOrderBook(OrderBook):
         if metadata:
             msg.update(metadata)
         return OrderBookMessage(OrderBookMessageType.DIFF, {
-            "trading_pair": cls._convert_trading_pair(msg["s"]),
-            "first_update_id": msg["U"],
-            "update_id": msg["u"],
-            "bids": msg["b"],
-            "asks": msg["a"]
+            "trading_pair": msg["trading_pair"],
+            "first_update_id": msg["data"]["U"],
+            "update_id": msg["data"]["u"],
+            "bids": msg["data"]["b"],
+            "asks": msg["data"]["a"]
         }, timestamp=timestamp)
 
     @classmethod
