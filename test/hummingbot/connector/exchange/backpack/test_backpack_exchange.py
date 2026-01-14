@@ -127,9 +127,9 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @property
     def trading_rules_request_erroneous_mock_response(self):
-        erroneous_trading_rule = self.all_symbols_request_mock_response.copy()
+        erroneous_trading_rule = self.all_symbols_request_mock_response[0].copy()
         del erroneous_trading_rule["filters"]
-        return erroneous_trading_rule
+        return [erroneous_trading_rule]
 
     @property
     def order_creation_request_successful_mock_response(self):
@@ -205,13 +205,13 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
 
     @property
     def expected_trading_rule(self):
-        filters = self.trading_rules_request_mock_response.get("filters")
+        filters = self.trading_rules_request_mock_response[0]["filters"]
         return TradingRule(
             trading_pair=self.trading_pair,
             min_order_size=Decimal(filters["quantity"]["minQuantity"]),
             min_price_increment=Decimal(filters["price"]["tickSize"]),
             min_base_amount_increment=Decimal(filters["quantity"]["stepSize"]),
-            min_notional_size=Decimal(filters["quantity"]["minQuantity"])  # TODO
+            min_notional_size=Decimal(filters["quantity"]["minQuantity"])
         )
 
     @property
@@ -703,7 +703,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
                                               self.exchange.UPDATE_ORDER_STATUS_MIN_INTERVAL - 1)
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        mock_response = {"code": -1003, "msg": "Unknown error, please check your request or try again later."}
+        mock_response = {"code": "SERVICE_UNAVAILABLE", "message": "Unknown error, please check your request or try again later."}
         mock_api.post(regex_url, body=json.dumps(mock_response), status=503)
 
         o_id, transact_time = self.async_run_with_timeout(self.exchange._place_order(
@@ -757,7 +757,8 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def test_format_trading_rules_notional_but_no_min_notional_present(self):
         exchange_info = self.all_symbols_request_mock_response
         result = self.async_run_with_timeout(self.exchange._format_trading_rules(exchange_info))
-        self.assertEqual(result[0].min_notional_size, Decimal("10"))
+        # When no mid_price is available, min_notional_size defaults to min_order_size
+        self.assertEqual(result[0].min_notional_size, Decimal("0.01"))
 
     def _validate_auth_credentials_taking_parameters_from_argument(self,
                                                                    request_call_tuple: RequestCall,

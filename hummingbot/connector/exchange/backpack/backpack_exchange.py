@@ -322,7 +322,15 @@ class BackpackExchange(ExchangePyBase):
                 min_order_size = Decimal(filters["quantity"]["minQuantity"])
                 tick_size = Decimal(filters["price"]["tickSize"])
                 step_size = Decimal(filters["quantity"]["stepSize"])
-                min_notional = min_order_size
+
+                try:
+                    mid_price = self.get_mid_price(trading_pair)
+                    if mid_price and mid_price > 0:
+                        min_notional = min_order_size * mid_price
+                    else:
+                        min_notional = min_order_size
+                except Exception:
+                    min_notional = min_order_size
 
                 retval.append(
                     TradingRule(trading_pair,
