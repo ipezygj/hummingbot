@@ -193,6 +193,10 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         return {}
 
     async def test_user_stream_balance_update(self):
+        """
+        Backpack does not provide balance updates through websocket.
+        Balance updates are handled via REST API polling.
+        """
         pass
 
     @property
@@ -898,3 +902,66 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
                 "Unexpected error in user stream listener loop."
             )
         )
+
+    def test_real_time_balance_update_disabled(self):
+        """
+        Test that Backpack exchange has real_time_balance_update set to False
+        since it doesn't support balance updates via websocket.
+        """
+        self.assertFalse(self.exchange.real_time_balance_update)
+
+    @aioresponses()
+    def test_update_balances_removes_old_assets(self, mock_api):
+        """
+        Test that _update_balances removes assets that are no longer present in the response.
+        """
+        # Set initial balances
+        self.exchange._account_balances["OLD_TOKEN"] = Decimal("50")
+        self.exchange._account_available_balances["OLD_TOKEN"] = Decimal("40")
+
+        url = self.balance_url
+        response = {
+            "SOL": {
+                "available": "100.5",
+                "locked": "10.0"
+            }
+        }
+
+        mock_api.get(url, body=json.dumps(response))
+
+        self.async_run_with_timeout(self.exchange._update_balances())
+
+        available_balances = self.exchange.available_balances
+        total_balances = self.exchange.get_all_balances()
+
+        # OLD_TOKEN should be removed
+        self.assertNotIn("OLD_TOKEN", available_balances)
+        self.assertNotIn("OLD_TOKEN", total_balances)
+
+        # SOL should be present
+        self.assertEqual(Decimal("100.5"), available_balances["SOL"])
+        self.assertEqual(Decimal("110.5"), total_balances["SOL"])
+
+    @aioresponses()
+    def test_update_balances_handles_empty_response(self, mock_api):
+        """
+        Test that _update_balances handles empty balance response correctly.
+        When account_info is empty/falsy, balances are not updated.
+        """
+        # Set initial balances
+        self.exchange._account_balances["SOL"] = Decimal("100")
+        self.exchange._account_available_balances["SOL"] = Decimal("90")
+
+        url = self.balance_url
+        response = {}
+
+        mock_api.get(url, body=json.dumps(response))
+
+        self.async_run_with_timeout(self.exchange._update_balances())
+
+        available_balances = self.exchange.available_balances
+        total_balances = self.exchange.get_all_balances()
+
+        # With empty response, balances should remain unchanged
+        self.assertEqual(Decimal("90"), available_balances["SOL"])
+        self.assertEqual(Decimal("100"), total_balances["SOL"])

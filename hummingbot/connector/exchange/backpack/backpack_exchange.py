@@ -49,6 +49,8 @@ class BackpackExchange(ExchangePyBase):
         self._last_trades_poll_backpack_timestamp = 1.0
         self._nonce_creator = NonceCreator.for_milliseconds()
         super().__init__(balance_asset_limit, rate_limits_share_pct)
+        # Backpack does not provide balance updates through websocket, use REST polling instead
+        self.real_time_balance_update = False
 
     @staticmethod
     def backpack_order_type(order_type: OrderType) -> str:
@@ -343,7 +345,6 @@ class BackpackExchange(ExchangePyBase):
         return retval
 
     async def _status_polling_loop_fetch_updates(self):
-        # TODO: Reimplement in this method something for balance updates? We have no WS
         await super()._status_polling_loop_fetch_updates()
 
     async def _update_trading_fees(self):
@@ -440,7 +441,6 @@ class BackpackExchange(ExchangePyBase):
                         exchange_order_id=exchange_order_id,
                     )
                     self._order_tracker.process_order_update(order_update=order_update)
-                    # TODO: Implement balance update via REST
 
             except asyncio.CancelledError:
                 raise
