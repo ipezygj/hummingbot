@@ -840,7 +840,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             "side": self._get_side(order),
             "symbol": self.exchange_symbol_for_tokens(order.base_asset, order.quote_asset),
             "systemOrderType": None,
-            "timestamp": 1499865549590,
+            "timestamp": "2017-07-12T08:05:49.590Z",
             "tradeId": self.expected_fill_trade_id
         }
 

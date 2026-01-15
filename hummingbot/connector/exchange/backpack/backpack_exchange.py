@@ -2,6 +2,7 @@ import asyncio
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
 from bidict import bidict
 
 from hummingbot.connector.constants import s_decimal_NaN
@@ -502,7 +503,7 @@ class BackpackExchange(ExchangePyBase):
                         fill_base_amount=Decimal(trade["quantity"]),
                         fill_quote_amount=Decimal(trade["quantity"]) * Decimal(trade["price"]),
                         fill_price=Decimal(trade["price"]),
-                        fill_timestamp=float(trade["timestamp"]) * 1e-3,
+                        fill_timestamp=pd.Timestamp(trade["timestamp"]).timestamp(),
                     )
                     trade_updates.append(trade_update)
             except IOError as ex:
