@@ -1,4 +1,4 @@
-from hummingbot.core.api_throttler.data_types import RateLimit
+from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, RateLimit
 from hummingbot.core.data_type.in_flight_order import OrderState
 
 DEFAULT_DOMAIN = "exchange"
@@ -39,19 +39,69 @@ BALANCE_PATH_URL = "api/v1/capital"  # instruction balanceQuery
 TICKER_BOOK_PATH_URL = "api/v1/tickers"
 TICKER_PRICE_CHANGE_PATH_URL = "api/v1/ticker"
 ORDER_PATH_URL = "api/v1/order"
-MY_TRADES_PATH_URL = "wapi/v1/history/fills"  # instruction fillHistoryQueryAll
+MY_TRADES_PATH_URL = "wapi/v1/history/fills"
 
-# TODO
+GLOBAL_RATE_LIMIT = "GLOBAL"
+
+# Present in https://support.backpack.exchange/exchange/api-and-developer-docs/faqs, not in the docs
 RATE_LIMITS = [
-    RateLimit(limit_id=SERVER_TIME_PATH_URL, limit=6000, time_interval=1),
-    RateLimit(limit_id=EXCHANGE_INFO_PATH_URL, limit=6000, time_interval=1),
-    RateLimit(limit_id=PING_PATH_URL, limit=6000, time_interval=1),
-    RateLimit(limit_id=SNAPSHOT_PATH_URL, limit=6000, time_interval=60),
-    RateLimit(limit_id=BALANCE_PATH_URL, limit=6000, time_interval=60),
-    RateLimit(limit_id=TICKER_BOOK_PATH_URL, limit=6000, time_interval=60),
-    RateLimit(limit_id=TICKER_PRICE_CHANGE_PATH_URL, limit=6000, time_interval=60),
-    RateLimit(limit_id=ORDER_PATH_URL, limit=6000, time_interval=60),
-    RateLimit(limit_id=MY_TRADES_PATH_URL, limit=6000, time_interval=60),
+    # Global pool limit
+    RateLimit(limit_id=GLOBAL_RATE_LIMIT, limit=2000, time_interval=60),
+    # All endpoints linked to the global pool
+    RateLimit(
+        limit_id=SERVER_TIME_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=EXCHANGE_INFO_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=PING_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=SNAPSHOT_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=BALANCE_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=TICKER_BOOK_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=TICKER_PRICE_CHANGE_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=ORDER_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=MY_TRADES_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
 ]
 
 ORDER_NOT_EXIST_ERROR_CODE = "INVALID_ORDER"
