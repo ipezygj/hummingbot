@@ -246,11 +246,11 @@ class BackpackExchange(ExchangePyBase):
             "quantity": amount_str,
             "clientId": int(order_id),
             "orderType": order_type_enum,
-            "postOnly": order_type == OrderType.LIMIT_MAKER
         }
         if order_type_enum == "Limit":
             price_str = f"{price:f}"
             api_params["price"] = price_str
+            api_params["postOnly"] = order_type == OrderType.LIMIT_MAKER
             api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
         try:
             order_result = await self._api_post(
