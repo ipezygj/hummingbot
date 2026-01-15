@@ -35,6 +35,9 @@ class BackpackAuth(AuthBase):
                                             timestamp_ms=timestamp_ms, window_ms=window_ms,
                                             instruction=instruction)
 
+        # Remove instruction from headers if present (it's used in signature, not sent as header)
+        headers.pop("instruction", None)
+
         headers.update({
             "X-Timestamp": str(timestamp_ms),
             "X-Window": str(window_ms),
@@ -53,15 +56,18 @@ class BackpackAuth(AuthBase):
         """
         Backpack: sign the request BODY (for POST/DELETE with body) OR QUERY params.
         Do NOT include timestamp/window/signature here (those are appended separately).
-        Returns a tuple of (params, instruction) where instruction is extracted from params.
+        Returns a tuple of (params, instruction) where instruction is extracted from params or headers.
         """
         if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
             params = json.loads(request.data)
         else:
             params = dict(request.params or {})
 
-        # Extract instruction if present (don't include in signature)
+        # Extract instruction from params first, then from headers if not found
         instruction = params.pop("instruction", None)
+        if instruction is None and request.headers:
+            instruction = request.headers.get("instruction")
+
         return params, instruction
 
     def generate_signature(
