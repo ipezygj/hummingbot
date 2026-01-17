@@ -14,6 +14,8 @@ BROKER_ID = 999
 
 ALL_ORDERS_CHANNEL = "account.orderUpdate"
 SINGLE_ORDERS_CHANNEL = "account.orderUpdate.{}"  # format by symbol
+ALL_POSITIONS_CHANNEL = "account.positionUpdate"
+SINGLE_POSITIONS_CHANNEL = "account.positionUpdate.{}"  # format by symbol
 
 SIDE_BUY = "Bid"
 SIDE_SELL = "Ask"
@@ -40,6 +42,9 @@ TICKER_BOOK_PATH_URL = "api/v1/tickers"
 TICKER_PRICE_CHANGE_PATH_URL = "api/v1/ticker"
 ORDER_PATH_URL = "api/v1/order"
 MY_TRADES_PATH_URL = "wapi/v1/history/fills"
+POSITIONS_PATH_URL = "api/v1/position"
+FUNDING_RATE_PATH_URL = "api/v1/fundingRates"
+FUNDING_PAYMENTS_PATH_URL = "wapi/v1/history/funding"
 
 GLOBAL_RATE_LIMIT = "GLOBAL"
 
@@ -98,6 +103,18 @@ RATE_LIMITS = [
     ),
     RateLimit(
         limit_id=MY_TRADES_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=POSITIONS_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=FUNDING_PAYMENTS_PATH_URL,
         limit=2000,
         time_interval=60,
         linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
