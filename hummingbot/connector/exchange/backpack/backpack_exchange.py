@@ -172,6 +172,7 @@ class BackpackExchange(ExchangePyBase):
             and (
                 "timestamp" in request_description.lower()
                 or "Invalid timestamp" in request_description
+                or "Request has expired" in request_description
             )
         )
         return is_time_synchronizer_related
