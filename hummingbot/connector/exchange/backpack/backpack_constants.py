@@ -10,7 +10,7 @@ WSS_URL = "wss://ws.backpack.{}/"
 WS_HEARTBEAT_TIME_INTERVAL = 60
 MAX_ORDER_ID_LEN = 10
 HBOT_ORDER_ID_PREFIX = "111"
-BROKER_ID = 999
+BROKER_ID = 2200
 
 ALL_ORDERS_CHANNEL = "account.orderUpdate"
 SINGLE_ORDERS_CHANNEL = "account.orderUpdate.{}"  # format by symbol
