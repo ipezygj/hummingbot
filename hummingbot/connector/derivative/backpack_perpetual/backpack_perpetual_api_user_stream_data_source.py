@@ -81,11 +81,26 @@ class BackpackPerpetualAPIUserStreamDataSource(UserStreamTrackerDataSource):
                     str(self._auth.DEFAULT_WINDOW_MS)
                 ]
             }
-            subscribe_order_change_request: WSJSONRequest = WSJSONRequest(payload=orders_change_payload)
 
-            await websocket_assistant.send(subscribe_order_change_request)
+            suscribe_orders_change_payload: WSJSONRequest = WSJSONRequest(payload=orders_change_payload)
 
-            self.logger().info("Subscribed to private order changes and balance updates channels...")
+            positions_change_payload = {
+                "method": "SUBSCRIBE",
+                "params": [CONSTANTS.ALL_POSITIONS_CHANNEL],
+                "signature": [
+                    self._auth.api_key,
+                    signature,
+                    str(timestamp_ms),
+                    str(self._auth.DEFAULT_WINDOW_MS)
+                ]
+            }
+
+            suscribe_positions_change_payload: WSJSONRequest = WSJSONRequest(payload=positions_change_payload)
+
+            await websocket_assistant.send(suscribe_orders_change_payload)
+            await websocket_assistant.send(suscribe_positions_change_payload)
+
+            self.logger().info("Subscribed to private order changes and position updates channels...")
         except asyncio.CancelledError:
             raise
         except Exception:
