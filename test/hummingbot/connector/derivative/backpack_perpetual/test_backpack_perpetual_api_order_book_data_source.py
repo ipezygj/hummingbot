@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from decimal import Decimal
 from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +17,7 @@ from hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_api_o
 )
 from hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative import BackpackPerpetualDerivative
 from hummingbot.connector.test_support.network_mocking_assistant import NetworkMockingAssistant
+from hummingbot.core.data_type.funding_info import FundingInfo
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 
@@ -402,6 +404,31 @@ class BackpackPerpetualAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTes
         msg: OrderBookMessage = await msg_queue.get()
 
         self.assertEqual(1027024, msg.update_id)
+
+    @aioresponses()
+    async def test_get_funding_info(self, mock_api):
+        url = web_utils.public_rest_url(path_url=CONSTANTS.MARK_PRICE_PATH_URL, domain=self.domain)
+        regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
+
+        funding_resp = [
+            {
+                "symbol": self.ex_trading_pair,
+                "indexPrice": "50000.00",
+                "markPrice": "50001.50",
+                "nextFundingTimestamp": 1234567890000,
+                "fundingRate": "0.0001"
+            }
+        ]
+
+        mock_api.get(regex_url, body=json.dumps(funding_resp))
+
+        funding_info: FundingInfo = await self.data_source.get_funding_info(self.trading_pair)
+
+        self.assertEqual(self.trading_pair, funding_info.trading_pair)
+        self.assertEqual(Decimal("50000.00"), funding_info.index_price)
+        self.assertEqual(Decimal("50001.50"), funding_info.mark_price)
+        self.assertEqual(1234567890, funding_info.next_funding_utc_timestamp)
+        self.assertEqual(Decimal("0.0001"), funding_info.rate)
 
     # Dynamic subscription tests
 

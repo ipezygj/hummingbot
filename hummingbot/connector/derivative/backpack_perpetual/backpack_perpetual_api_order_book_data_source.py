@@ -52,10 +52,10 @@ class BackpackPerpetualAPIOrderBookDataSource(PerpetualAPIOrderBookDataSource):
             params=params,
             throttler_limit_id=CONSTANTS.MARK_PRICE_PATH_URL)
         return FundingInfo(trading_pair=trading_pair,
-                           index_price=Decimal(data["indexPrice"]),
-                           mark_price=Decimal(data["markPrice"]),
-                           next_funding_utc_timestamp=data["nextFundingTimestamp"] * 1e-3,
-                           rate=Decimal(data["fundingRate"]))
+                           index_price=Decimal(data[0]["indexPrice"]),
+                           mark_price=Decimal(data[0]["markPrice"]),
+                           next_funding_utc_timestamp=data[0]["nextFundingTimestamp"] * 1e-3,
+                           rate=Decimal(data[0]["fundingRate"]))
 
     async def _request_order_book_snapshot(self, trading_pair: str) -> Dict[str, Any]:
         """
