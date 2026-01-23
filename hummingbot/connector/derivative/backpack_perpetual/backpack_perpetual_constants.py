@@ -47,6 +47,8 @@ POSITIONS_PATH_URL = "api/v1/position"
 MARK_PRICE_PATH_URL = "api/v1/markPrices"
 FUNDING_RATE_PATH_URL = "api/v1/fundingRates"
 FUNDING_PAYMENTS_PATH_URL = "wapi/v1/history/funding"
+ACCOUNT_PATH_URL = "api/v1/account"
+
 
 GLOBAL_RATE_LIMIT = "GLOBAL"
 
@@ -123,6 +125,12 @@ RATE_LIMITS = [
     ),
     RateLimit(
         limit_id=MARK_PRICE_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=ACCOUNT_PATH_URL,
         limit=2000,
         time_interval=60,
         linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],

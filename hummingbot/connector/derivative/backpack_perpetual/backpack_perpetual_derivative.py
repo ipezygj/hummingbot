@@ -696,8 +696,36 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         return True, ""
 
     async def _set_trading_pair_leverage(self, trading_pair: str, leverage: int) -> Tuple[bool, str]:
-        # TODO: Implement set trading pair leverage
-        return True, ""
+        data = {
+            "instruction": "accountUpdate",
+            "leverageLimit": str(leverage),
+        }
+        try:
+            # Backpack returns 200 with no content, so we use execute_request_and_get_response
+            rest_assistant = await self._web_assistants_factory.get_rest_assistant()
+            url = web_utils.private_rest_url(path_url=CONSTANTS.ACCOUNT_PATH_URL, domain=self._domain)
+
+            response = await rest_assistant.execute_request_and_get_response(
+                url=url,
+                data=data,
+                method=RESTMethod.PATCH,
+                is_auth_required=True,
+                throttler_limit_id=CONSTANTS.ACCOUNT_PATH_URL,
+            )
+
+            # Check if status is 2xx (success)
+            if 200 <= response.status < 300:
+                self.logger().info(f"Successfully set leverage to {leverage} for account")
+                return True, ""
+            else:
+                error_text = await response.text()
+                error_msg = f"Failed to set leverage: HTTP {response.status} - {error_text}"
+                self.logger().error(error_msg)
+                return False, error_msg
+        except Exception as e:
+            error_msg = f"Error setting leverage for {trading_pair}: {str(e)}"
+            self.logger().error(error_msg, exc_info=True)
+            return False, error_msg
 
     async def _fetch_last_fee_payment(self, trading_pair: str) -> Tuple[float, Decimal, Decimal]:
         params = {

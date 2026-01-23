@@ -23,7 +23,7 @@ class BackpackPerpetualAuth(AuthBase):
 
         sign_params, instruction = self._get_signable_params(request)
 
-        if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
+        if request.method in [RESTMethod.POST, RESTMethod.PATCH, RESTMethod.DELETE] and request.data:
             request.data = json.dumps(sign_params)
         else:
             request.params = sign_params
@@ -54,11 +54,11 @@ class BackpackPerpetualAuth(AuthBase):
 
     def _get_signable_params(self, request: RESTRequest) -> tuple[Dict[str, Any], Optional[str]]:
         """
-        Backpack: sign the request BODY (for POST/DELETE with body) OR QUERY params.
+        Backpack: sign the request BODY (for POST/PUT/DELETE with body) OR QUERY params.
         Do NOT include timestamp/window/signature here (those are appended separately).
         Returns a tuple of (params, instruction) where instruction is extracted from params or headers.
         """
-        if request.method in [RESTMethod.POST, RESTMethod.DELETE] and request.data:
+        if request.method in [RESTMethod.POST, RESTMethod.PATCH, RESTMethod.DELETE] and request.data:
             params = json.loads(request.data)
         else:
             params = dict(request.params or {})
