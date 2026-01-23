@@ -8,7 +8,7 @@ import hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_con
 from hummingbot.connector.derivative.backpack_perpetual import backpack_perpetual_web_utils as web_utils
 
 
-class BackpackUtilTestCases(unittest.IsolatedAsyncioTestCase):
+class BackpackPerpetualUtilTestCases(unittest.IsolatedAsyncioTestCase):
 
     def test_public_rest_url(self):
         path_url = "api/v1/test"
