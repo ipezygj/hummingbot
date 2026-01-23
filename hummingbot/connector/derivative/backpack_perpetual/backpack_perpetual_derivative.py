@@ -18,14 +18,16 @@ from hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_api_u
     BackpackPerpetualAPIUserStreamDataSource,
 )
 from hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_auth import BackpackPerpetualAuth
+from hummingbot.connector.derivative.position import Position
 from hummingbot.connector.perpetual_derivative_py_base import PerpetualDerivativePyBase
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import combine_to_hb_trading_pair, get_new_numeric_client_order_id
-from hummingbot.core.data_type.common import OrderType, TradeType
+from hummingbot.core.data_type.common import OrderType, PositionAction, PositionMode, PositionSide, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
+from hummingbot.core.event.events import AccountEvent, PositionModeChangeEvent
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.core.utils.tracking_nonce import NonceCreator
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
@@ -34,8 +36,19 @@ from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFa
 
 class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
     UPDATE_ORDER_STATUS_MIN_INTERVAL = 10.0
-
     web_utils = web_utils
+    _VALID_EVENT_TYPES = {
+        "orderAccepted",
+        "orderCancelled",
+        "orderExpired",
+        "orderFill",
+        "orderModified",
+        "triggerPlaced",
+        "triggerFailed",
+        "positionOpened",
+        "positionClosed",
+        "positionAdjusted",
+    }
 
     def __init__(self,
                  backpack_api_key: str,
@@ -75,9 +88,9 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
     @property
     def name(self) -> str:
         if self._domain == "exchange":
-            return "backpack"
+            return "backpack_perpetual"
         else:
-            return f"backpack_{self._domain}"
+            return f"backpack_perpetual_{self._domain}"
 
     @property
     def rate_limits_rules(self):
@@ -220,16 +233,17 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                  order_type: OrderType,
                  order_side: TradeType,
                  amount: Decimal,
+                 position_action: PositionAction,
                  price: Decimal = s_decimal_NaN,
                  is_maker: Optional[bool] = None) -> TradeFeeBase:
         is_maker = order_type is OrderType.LIMIT_MAKER
         return AddedToCostTradeFee(percent=self.estimate_fee_pct(is_maker))
 
     def exchange_symbol_associated_to_pair(self, trading_pair: str) -> str:
-        return trading_pair.replace("-", "_")
+        return trading_pair.replace("-", "_") + "_PERP"
 
     def trading_pair_associated_to_exchange_symbol(self, symbol: str) -> str:
-        return symbol.replace("_", "-")
+        return symbol.replace("_", "-").replace("-PERP", "")
 
     async def _place_order(self,
                            order_id: str,
@@ -361,98 +375,118 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
 
     async def _user_stream_event_listener(self):
         async for event_message in self._iter_user_event_queue():
-            data = event_message.get("data")
-            if not isinstance(data, dict):
-                continue
-
-            event_type = data.get("e")
-            if event_type is None:
-                continue
-
             try:
-                if event_type in {
-                    "orderAccepted",
-                    "orderCancelled",
-                    "orderExpired",
-                    "orderFill",
-                    "orderModified",
-                    "triggerPlaced",
-                    "triggerFailed",
-                }:
-                    exchange_order_id = str(data.get("i"))
-                    client_order_id = str(data.get("c"))
-
-                    # 1) Resolve tracked order
-                    tracked_order = None
-
-                    if client_order_id is not None:
-                        tracked_order = self._order_tracker.all_updatable_orders.get(client_order_id)
-
-                    # Fallback: sometimes 'c' is absent; match by exchange_order_id
-                    if tracked_order is None and exchange_order_id is not None:
-                        for o in self._order_tracker.all_updatable_orders.values():
-                            if str(o.exchange_order_id) == exchange_order_id:
-                                tracked_order = o
-                                client_order_id = o.client_order_id  # recover internal id
-                                break
-
-                    # If still not found, nothing to update
-                    if tracked_order is None or client_order_id is None:
-                        continue
-
-                    # 2) Trade fill event
-                    if event_type == "orderFill":
-                        # Trade fields are only present on orderFill events
-                        fee_token = data.get("N")
-                        fee_amount = data.get("n")
-
-                        fee = TradeFeeBase.new_spot_fee(
-                            fee_schema=self.trade_fee_schema(),
-                            trade_type=tracked_order.trade_type,
-                            percent_token=fee_token,
-                            flat_fees=(
-                                [TokenAmount(amount=Decimal(str(fee_amount)), token=str(fee_token))]
-                                if fee_token is not None and fee_amount is not None
-                                else []
-                            ),
-                        )
-
-                        fill_qty = Decimal(str(data["l"]))
-                        fill_price = Decimal(str(data["L"]))
-
-                        trade_update = TradeUpdate(
-                            trade_id=str(data["t"]),
-                            client_order_id=client_order_id,
-                            exchange_order_id=exchange_order_id,
-                            trading_pair=tracked_order.trading_pair,
-                            fee=fee,
-                            fill_base_amount=fill_qty,
-                            fill_quote_amount=fill_qty * fill_price,
-                            fill_price=fill_price,
-                            # Backpack timestamps are microseconds
-                            fill_timestamp=data["T"] * 1e-6,
-                        )
-                        self._order_tracker.process_trade_update(trade_update)
-
-                    # 3) Order state update
-                    raw_state = data.get("X")
-                    new_state = CONSTANTS.ORDER_STATE.get(raw_state, OrderState.FAILED)
-
-                    order_update = OrderUpdate(
-                        trading_pair=tracked_order.trading_pair,
-                        # Backpack event time is microseconds
-                        update_timestamp=data["E"] * 1e-6,
-                        new_state=new_state,
-                        client_order_id=client_order_id,
-                        exchange_order_id=exchange_order_id,
-                    )
-                    self._order_tracker.process_order_update(order_update=order_update)
-
+                if not self._validate_event_message(event_message):
+                    continue
+                stream = event_message["stream"]
+                if "positionUpdate" in stream:
+                    await self._parse_and_process_position_message(event_message)
+                elif "orderUpdate" in stream:
+                    self._parse_and_process_order_message(event_message)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self.logger().error("Unexpected error in user stream listener loop.", exc_info=True)
                 await self._sleep(5.0)
+
+    def _validate_event_message(self, event_message) -> bool:
+        stream = event_message.get("stream")
+        data = event_message.get("data")
+        return bool(stream and data)
+
+    async def _parse_and_process_position_message(self, event_message: Dict[str, Any]):
+        data = event_message.get("data")
+        hb_trading_pair = self.trading_pair_associated_to_exchange_symbol(data.get("s"))
+        quantity = Decimal(data.get("q", "0"))
+        side = PositionSide.LONG if quantity > 0 else PositionSide.SHORT
+        position = self._perpetual_trading.get_position(hb_trading_pair, side)
+        if position is not None:
+            amount = abs(quantity)
+            if amount == Decimal("0"):
+                pos_key = self._perpetual_trading.position_key(hb_trading_pair, side)
+                self._perpetual_trading.remove_position(pos_key)
+            else:
+                position.update_position(position_side=side,
+                                         unrealized_pnl=Decimal(data["P"]),
+                                         entry_price=Decimal(data["B"]),
+                                         amount=amount)
+        else:
+            await self._update_positions()
+
+    def _parse_and_process_order_message(self, event_message: Dict[str, Any]):
+        data = event_message.get("data")
+        event_type = data.get("e")
+        exchange_order_id = str(data.get("i"))
+        client_order_id = str(data.get("c"))
+
+        if event_type not in self._VALID_EVENT_TYPES:
+            return
+
+        # 1) Resolve tracked order
+        tracked_order = None
+
+        if client_order_id is not None:
+            tracked_order = self._order_tracker.all_updatable_orders.get(client_order_id)
+
+        # Fallback: sometimes 'c' is absent; match by exchange_order_id
+        if tracked_order is None and exchange_order_id is not None:
+            for o in self._order_tracker.all_updatable_orders.values():
+                if str(o.exchange_order_id) == exchange_order_id:
+                    tracked_order = o
+                    client_order_id = o.client_order_id  # recover internal id
+                    break
+
+        # If still not found, nothing to update
+        if tracked_order is None or client_order_id is None:
+            return
+
+        # 2) Trade fill event
+        if event_type == "orderFill":
+            # Trade fields are only present on orderFill events
+            fee_token = data.get("N")
+            fee_amount = data.get("n")
+
+            fee = TradeFeeBase.new_spot_fee(
+                fee_schema=self.trade_fee_schema(),
+                trade_type=tracked_order.trade_type,
+                percent_token=fee_token,
+                flat_fees=(
+                    [TokenAmount(amount=Decimal(str(fee_amount)), token=str(fee_token))]
+                    if fee_token is not None and fee_amount is not None
+                    else []
+                ),
+            )
+
+            fill_qty = Decimal(str(data["l"]))
+            fill_price = Decimal(str(data["L"]))
+
+            trade_update = TradeUpdate(
+                trade_id=str(data["t"]),
+                client_order_id=client_order_id,
+                exchange_order_id=exchange_order_id,
+                trading_pair=tracked_order.trading_pair,
+                fee=fee,
+                fill_base_amount=fill_qty,
+                fill_quote_amount=fill_qty * fill_price,
+                fill_price=fill_price,
+                # Backpack timestamps are microseconds
+                fill_timestamp=data["T"] * 1e-6,
+            )
+            self._order_tracker.process_trade_update(trade_update)
+
+        # 3) Order state update
+        raw_state = data.get("X")
+        new_state = CONSTANTS.ORDER_STATE.get(raw_state, OrderState.FAILED)
+
+        order_update = OrderUpdate(
+            trading_pair=tracked_order.trading_pair,
+            # Backpack event time is microseconds
+            update_timestamp=data["E"] * 1e-6,
+            new_state=new_state,
+            client_order_id=client_order_id,
+            exchange_order_id=exchange_order_id,
+        )
+        self._order_tracker.process_order_update(order_update=order_update)
 
     async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
         trade_updates = []
@@ -580,3 +614,104 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         )
 
         return float(resp_json["lastPrice"])
+
+    @property
+    def funding_fee_poll_interval(self) -> int:
+        return 120
+
+    def supported_position_modes(self) -> List:
+        return [PositionMode.ONEWAY]
+
+    def get_buy_collateral_token(self, trading_pair: str) -> str:
+        # TODO
+        return "USDC"
+
+    def get_sell_collateral_token(self, trading_pair: str) -> str:
+        # TODO
+        return "USDC"
+
+    async def _update_positions(self):
+        # TODO
+        params = {
+            "instruction": "positionQuery",
+            # "marketType": "PERP",
+        }
+        try:
+            positions = await self._api_get(path_url=CONSTANTS.POSITIONS_PATH_URL,
+                                            params=params,
+                                            is_auth_required=True)
+            for position in positions:
+                trading_pair = position.get("symbol")
+                try:
+                    hb_trading_pair = self.trading_pair_associated_to_exchange_symbol(trading_pair)
+                except KeyError:
+                    # Ignore results for which their symbols is not tracked by the connector
+                    continue
+                unrealized_pnl = Decimal(position.get("pnlUnrealized"))
+                entry_price = Decimal(position.get("entryPrice"))
+                net_quantity = Decimal(position.get("netQuantity", "0"))
+                amount = abs(net_quantity)
+                position_side = PositionSide.SHORT if net_quantity < 0 else PositionSide.LONG
+                leverage = Decimal("100") * Decimal(position.get("imf"))
+                pos_key = self._perpetual_trading.position_key(hb_trading_pair, position_side)
+                if amount != 0:
+                    _position = Position(
+                        trading_pair=self.trading_pair_associated_to_exchange_symbol(trading_pair),
+                        position_side=position_side,
+                        unrealized_pnl=unrealized_pnl,
+                        entry_price=entry_price,
+                        amount=amount,
+                        leverage=leverage
+                    )
+                    self._perpetual_trading.set_position(pos_key, _position)
+                else:
+                    self._perpetual_trading.remove_position(pos_key)
+        except Exception as e:
+            self.logger().error(f"Error fetching positions: {e}", exc_info=True)
+
+    async def _trading_pair_position_mode_set(self, mode: PositionMode, trading_pair: str) -> Tuple[bool, str]:
+        """
+        :return: A tuple of boolean (true if success) and error message if the exchange returns one on failure.
+        """
+        if mode != PositionMode.ONEWAY:
+            self.trigger_event(
+                AccountEvent.PositionModeChangeFailed,
+                PositionModeChangeEvent(
+                    self.current_timestamp, trading_pair, mode, "Backpack only supports the ONEWAY position mode."
+                ),
+            )
+            self.logger().debug(
+                f"Backpack encountered a problem switching position mode to "
+                f"{mode} for {trading_pair}"
+                f" (Backpack only supports the ONEWAY position mode)"
+            )
+        else:
+            self._position_mode = PositionMode.ONEWAY
+            super().set_position_mode(PositionMode.ONEWAY)
+            self.trigger_event(
+                AccountEvent.PositionModeChangeSucceeded,
+                PositionModeChangeEvent(self.current_timestamp, trading_pair, mode),
+            )
+            self.logger().debug(f"Backpack switching position mode to " f"{mode} for {trading_pair} succeeded.")
+        return True, ""
+
+    async def _set_trading_pair_leverage(self, trading_pair: str, leverage: int) -> Tuple[bool, str]:
+        # TODO: Implement set trading pair leverage
+        return True, ""
+
+    async def _fetch_last_fee_payment(self, trading_pair: str) -> Tuple[float, Decimal, Decimal]:
+        params = {
+            "instruction": "fundingHistoryQueryAll",
+            "symbol": self.exchange_symbol_associated_to_pair(trading_pair=trading_pair),
+            "sortDirection": "Desc",
+        }
+        funding_payment_info = await self._api_get(path_url=CONSTANTS.FUNDING_PAYMENTS_PATH_URL,
+                                                   params=params,
+                                                   is_auth_required=True)
+        last_payment = funding_payment_info[0]
+        if last_payment:
+            timestamp = pd.Timestamp(last_payment["intervalEndTimestamp"]).timestamp()
+            rate = Decimal(last_payment["fundingRate"])
+            amount = Decimal(last_payment["quantity"])
+            return timestamp, rate, amount
+        return 0, Decimal("-1"), Decimal("-1")
