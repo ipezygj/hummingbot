@@ -32,6 +32,7 @@ ORDER_STATE = {
 
 DIFF_EVENT_TYPE = "depth"
 TRADE_EVENT_TYPE = "trade"
+FUNDING_EVENT_TYPE = "markPrice"
 
 PING_PATH_URL = "api/v1/ping"
 SERVER_TIME_PATH_URL = "api/v1/time"
@@ -43,6 +44,7 @@ TICKER_PRICE_CHANGE_PATH_URL = "api/v1/ticker"
 ORDER_PATH_URL = "api/v1/order"
 MY_TRADES_PATH_URL = "wapi/v1/history/fills"
 POSITIONS_PATH_URL = "api/v1/position"
+MARK_PRICE_PATH_URL = "api/v1/markPrices"
 FUNDING_RATE_PATH_URL = "api/v1/fundingRates"
 FUNDING_PAYMENTS_PATH_URL = "wapi/v1/history/funding"
 
@@ -115,6 +117,12 @@ RATE_LIMITS = [
     ),
     RateLimit(
         limit_id=FUNDING_PAYMENTS_PATH_URL,
+        limit=2000,
+        time_interval=60,
+        linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
+    ),
+    RateLimit(
+        limit_id=MARK_PRICE_PATH_URL,
         limit=2000,
         time_interval=60,
         linked_limits=[LinkedLimitWeightPair(GLOBAL_RATE_LIMIT)],
