@@ -3,7 +3,7 @@ import unittest
 from hummingbot.connector.derivative.backpack_perpetual import backpack_perpetual_utils as utils
 
 
-class BackpackUtilTestCases(unittest.TestCase):
+class BackpackPerpetualUtilTestCases(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:

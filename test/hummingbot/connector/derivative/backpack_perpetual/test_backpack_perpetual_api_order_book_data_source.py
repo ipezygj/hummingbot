@@ -20,7 +20,7 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
 
 
-class BackpackAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
+class BackpackPerpetualAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
     # logging.Level required to receive logs from the data source logger
     level = 0
 
