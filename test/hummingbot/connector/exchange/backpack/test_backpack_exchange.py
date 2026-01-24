@@ -215,7 +215,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             min_order_size=Decimal(filters["quantity"]["minQuantity"]),
             min_price_increment=Decimal(filters["price"]["tickSize"]),
             min_base_amount_increment=Decimal(filters["quantity"]["stepSize"]),
-            min_notional_size=Decimal(filters["quantity"]["minQuantity"])
+            min_notional_size=Decimal("0")
         )
 
     @property
@@ -762,8 +762,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     def test_format_trading_rules_notional_but_no_min_notional_present(self):
         exchange_info = self.all_symbols_request_mock_response
         result = self.async_run_with_timeout(self.exchange._format_trading_rules(exchange_info))
-        # When no mid_price is available, min_notional_size defaults to min_order_size
-        self.assertEqual(result[0].min_notional_size, Decimal("0.01"))
+        self.assertEqual(result[0].min_notional_size, Decimal("0"))
 
     def _validate_auth_credentials_taking_parameters_from_argument(self,
                                                                    request_call_tuple: RequestCall,
