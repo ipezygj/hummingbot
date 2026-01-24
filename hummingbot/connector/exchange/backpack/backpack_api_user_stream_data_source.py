@@ -83,7 +83,7 @@ class BackpackAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
             await websocket_assistant.send(subscribe_order_change_request)
 
-            self.logger().info("Subscribed to private order changes and balance updates channels...")
+            self.logger().info("Subscribed to private order changes channel...")
         except asyncio.CancelledError:
             raise
         except Exception:

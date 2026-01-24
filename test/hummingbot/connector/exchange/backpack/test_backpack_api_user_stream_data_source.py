@@ -178,7 +178,7 @@ class BackpackAPIUserStreamDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
         self.assertIn("signature", subscribe_request)
         self.assertEqual(4, len(subscribe_request["signature"]))  # [api_key, signature, timestamp, window]
 
-        self.assertTrue(self._is_logged("INFO", "Subscribed to private order changes and balance updates channels..."))
+        self.assertTrue(self._is_logged("INFO", "Subscribed to private order changes channel..."))
 
     @patch("aiohttp.ClientSession.ws_connect", new_callable=AsyncMock)
     @patch("hummingbot.connector.exchange.backpack.backpack_api_user_stream_data_source.BackpackAPIUserStreamDataSource._sleep")
