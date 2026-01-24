@@ -258,7 +258,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         order_type_enum = self.backpack_order_type(order_type)
         side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
         symbol = self.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-        api_params = {
+        data = {
             "instruction": "orderExecute",
             "symbol": symbol,
             "side": side_str,
@@ -268,20 +268,19 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         }
         if order_type_enum == "Limit":
             price_str = f"{price:f}"
-            api_params["price"] = price_str
-            api_params["postOnly"] = order_type == OrderType.LIMIT_MAKER
-            api_params["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
+            data["price"] = price_str
+            data["postOnly"] = order_type == OrderType.LIMIT_MAKER
+            data["timeInForce"] = CONSTANTS.TIME_IN_FORCE_GTC
         try:
             order_result = await self._api_post(
                 path_url=CONSTANTS.ORDER_PATH_URL,
-                data=api_params,
+                data=data,
                 is_auth_required=True)
             o_id = str(order_result["id"])
             transact_time = order_result["createdAt"] * 1e-3
         except IOError as e:
             error_description = str(e)
 
-            # Check for LIMIT_MAKER post-only rejection
             is_post_only_rejection = (
                 order_type == OrderType.LIMIT_MAKER
                 and "INVALID_ORDER" in error_description
@@ -344,16 +343,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                 min_order_size = Decimal(filters["quantity"]["minQuantity"])
                 tick_size = Decimal(filters["price"]["tickSize"])
                 step_size = Decimal(filters["quantity"]["stepSize"])
-
-                try:
-                    mid_price = self.get_mid_price(trading_pair)
-                    if mid_price and mid_price > 0:
-                        min_notional = min_order_size * mid_price
-                    else:
-                        min_notional = min_order_size
-                except Exception:
-                    min_notional = min_order_size
-
+                min_notional = Decimal("0")  # same as Bybit inverse, disables notional validation
                 retval.append(
                     TradingRule(trading_pair,
                                 min_order_size=min_order_size,
@@ -701,7 +691,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
             "leverageLimit": str(leverage),
         }
         try:
-            # Backpack returns 200 with no content, so we use execute_request_and_get_response
+            # Backpack returns 200 with no content
             rest_assistant = await self._web_assistants_factory.get_rest_assistant()
             url = web_utils.private_rest_url(path_url=CONSTANTS.ACCOUNT_PATH_URL, domain=self._domain)
 
