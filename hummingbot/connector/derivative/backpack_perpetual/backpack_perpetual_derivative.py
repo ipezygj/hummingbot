@@ -629,7 +629,6 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                 net_quantity = Decimal(position.get("netQuantity", "0"))
                 amount = abs(net_quantity)
                 position_side = PositionSide.SHORT if net_quantity < 0 else PositionSide.LONG
-                leverage = Decimal("100") * Decimal(position.get("imf"))
                 pos_key = self._perpetual_trading.position_key(hb_trading_pair, position_side)
                 if amount != 0:
                     _position = Position(
@@ -638,7 +637,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                         unrealized_pnl=unrealized_pnl,
                         entry_price=entry_price,
                         amount=amount,
-                        leverage=leverage
+                        leverage=self._leverage
                     )
                     self._perpetual_trading.set_position(pos_key, _position)
                 else:
@@ -673,6 +672,16 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         return True, ""
 
     async def _set_trading_pair_leverage(self, trading_pair: str, leverage: int) -> Tuple[bool, str]:
+        account_info = await self._api_get(path_url=CONSTANTS.ACCOUNT_PATH_URL,
+                                           is_auth_required=True)
+        current_leverage = account_info.get("leverageLimit")
+        if not leverage:
+            return False, f"There is no leverage available for {trading_pair}."
+
+        self._leverage = current_leverage
+        if current_leverage == leverage:
+            return True, ""
+
         data = {
             "instruction": "accountUpdate",
             "leverageLimit": str(leverage),
@@ -693,6 +702,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
             # Check if status is 2xx (success)
             if 200 <= response.status < 300:
                 self.logger().info(f"Successfully set leverage to {leverage} for account")
+                self._leverage = leverage
                 return True, ""
             else:
                 error_text = await response.text()
