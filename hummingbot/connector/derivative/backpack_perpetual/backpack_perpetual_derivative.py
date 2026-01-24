@@ -126,7 +126,6 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
 
     @property
     def is_cancel_request_in_exchange_synchronous(self) -> bool:
-        # TODO
         return True
 
     @property
@@ -176,10 +175,6 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
             )
         )
         return numeric_order_id
-
-    async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
-        pairs_prices = await self._api_get(path_url=CONSTANTS.TICKER_BOOK_PATH_URL)
-        return pairs_prices
 
     def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception):
         request_description = str(request_exception)
@@ -233,10 +228,10 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                  order_type: OrderType,
                  order_side: TradeType,
                  amount: Decimal,
-                 position_action: PositionAction,
+                 position_action: PositionAction = PositionAction.NIL,
                  price: Decimal = s_decimal_NaN,
                  is_maker: Optional[bool] = None) -> TradeFeeBase:
-        is_maker = order_type is OrderType.LIMIT_MAKER
+        is_maker = order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]
         return AddedToCostTradeFee(percent=self.estimate_fee_pct(is_maker))
 
     def exchange_symbol_associated_to_pair(self, trading_pair: str) -> str:
@@ -252,8 +247,8 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                            trade_type: TradeType,
                            order_type: OrderType,
                            price: Decimal,
+                           position_action: PositionAction = PositionAction.NIL,
                            **kwargs) -> Tuple[str, float]:
-        order_result = None
         amount_str = f"{amount:f}"
         order_type_enum = self.backpack_order_type(order_type)
         side_str = CONSTANTS.SIDE_BUY if trade_type is TradeType.BUY else CONSTANTS.SIDE_SELL
@@ -354,13 +349,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                 self.logger().exception(f"Error parsing the trading pair rule {rule}. Skipping.")
         return retval
 
-    async def _status_polling_loop_fetch_updates(self):
-        await super()._status_polling_loop_fetch_updates()
-
     async def _update_trading_fees(self):
-        """
-        Update fees information from the exchange
-        """
         pass
 
     async def _user_stream_event_listener(self):
@@ -436,9 +425,9 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
             fee_token = data.get("N")
             fee_amount = data.get("n")
 
-            fee = TradeFeeBase.new_spot_fee(
+            fee = TradeFeeBase.new_perpetual_fee(
                 fee_schema=self.trade_fee_schema(),
-                trade_type=tracked_order.trade_type,
+                position_action=PositionAction.NIL,
                 percent_token=fee_token,
                 flat_fees=(
                     [TokenAmount(amount=Decimal(str(fee_amount)), token=str(fee_token))]
@@ -517,9 +506,9 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                 # Process trade fills
                 for trade in all_fills_response:
                     exchange_order_id = str(trade["orderId"])
-                    fee = TradeFeeBase.new_spot_fee(
+                    fee = TradeFeeBase.new_perpetual_fee(
                         fee_schema=self.trade_fee_schema(),
-                        trade_type=order.trade_type,
+                        position_action=PositionAction.NIL,
                         percent_token=trade["feeSymbol"],
                         flat_fees=[TokenAmount(amount=Decimal(trade["fee"]), token=trade["feeSymbol"])]
                     )
@@ -584,7 +573,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
                 del self._account_available_balances[asset_name]
                 del self._account_balances[asset_name]
 
-    def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
+    def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: List[Dict[str, Any]]):
         mapping = bidict()
         for symbol_data in exchange_info:
             if utils.is_exchange_information_valid(symbol_data):
@@ -613,18 +602,16 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         return [PositionMode.ONEWAY]
 
     def get_buy_collateral_token(self, trading_pair: str) -> str:
-        # TODO
-        return "USDC"
+        trading_rule: TradingRule = self._trading_rules.get(trading_pair)
+        return trading_rule.buy_order_collateral_token
 
     def get_sell_collateral_token(self, trading_pair: str) -> str:
-        # TODO
-        return "USDC"
+        trading_rule: TradingRule = self._trading_rules.get(trading_pair)
+        return trading_rule.sell_order_collateral_token
 
     async def _update_positions(self):
-        # TODO
         params = {
             "instruction": "positionQuery",
-            # "marketType": "PERP",
         }
         try:
             positions = await self._api_get(path_url=CONSTANTS.POSITIONS_PATH_URL,
