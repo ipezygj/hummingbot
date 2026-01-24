@@ -57,45 +57,6 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
         )
         return data
 
-    async def _subscribe_channels(self, ws: WSAssistant):
-        """
-        Subscribes to the trade events and diff orders events through the provided websocket connection.
-        :param ws: the websocket assistant used to connect to the exchange
-        """
-        try:
-            trade_params = []
-            depth_params = []
-            for trading_pair in self._trading_pairs:
-                symbol = self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
-                trade_params.append(f"trade.{symbol}")
-                depth_params.append(f"depth.{symbol}")
-            payload = {
-                "method": "SUBSCRIBE",
-                "params": trade_params,
-                "id": 1
-            }
-            subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=payload)
-
-            payload = {
-                "method": "SUBSCRIBE",
-                "params": depth_params,
-                "id": 2
-            }
-            subscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=payload)
-
-            await ws.send(subscribe_trade_request)
-            await ws.send(subscribe_orderbook_request)
-
-            self.logger().info("Subscribed to public order book and trade channels...")
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            self.logger().error(
-                "Unexpected error occurred subscribing to order book trading and delta streams...",
-                exc_info=True
-            )
-            raise
-
     async def _connected_websocket_assistant(self) -> WSAssistant:
         ws: WSAssistant = await self._api_factory.get_ws_assistant()
         await ws.connect(ws_url=CONSTANTS.WSS_URL.format(self._domain),
@@ -134,3 +95,87 @@ class BackpackAPIOrderBookDataSource(OrderBookTrackerDataSource):
         elif CONSTANTS.TRADE_EVENT_TYPE in stream:
             channel = self._trade_messages_queue_key
         return channel
+
+    async def _subscribe_channels(self, ws: WSAssistant):
+        """
+        Subscribes to the trade events and diff orders events through the provided websocket connection.
+        :param ws: the websocket assistant used to connect to the exchange
+        """
+        try:
+            for trading_pair in self._trading_pairs:
+                trading_pair = self._connector.exchange_symbol_associated_to_pair(trading_pair=trading_pair)
+                await self.subscribe_to_trading_pair(trading_pair)
+            self.logger().info("Subscribed to public order book and trade channels...")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().error(
+                "Unexpected error occurred subscribing to order book trading and delta streams...",
+                exc_info=True
+            )
+            raise
+
+    async def subscribe_to_trading_pair(self, trading_pair: str) -> bool:
+        if self._ws_assistant is None:
+            self.logger().warning(
+                f"Cannot unsubscribe from {trading_pair}: WebSocket not connected"
+            )
+            return False
+
+        trade_params = [f"trade.{trading_pair}"]
+        payload = {
+            "method": "SUBSCRIBE",
+            "params": trade_params,
+        }
+        subscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=payload)
+
+        depth_params = [f"depth.{trading_pair}"]
+        payload = {
+            "method": "SUBSCRIBE",
+            "params": depth_params,
+        }
+        subscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=payload)
+
+        try:
+            await self._ws_assistant.send(subscribe_trade_request)
+            await self._ws_assistant.send(subscribe_orderbook_request)
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().exception(f"Error subscribing to {trading_pair}")
+            return False
+
+    async def unsubscribe_from_trading_pair(self, trading_pair: str) -> bool:
+        if self._ws_assistant is None:
+            self.logger().warning(
+                f"Cannot unsubscribe from {trading_pair}: WebSocket not connected"
+            )
+            return False
+
+        trade_params = [f"trade.{trading_pair}"]
+        payload = {
+            "method": "UNSUBSCRIBE",
+            "params": trade_params,
+        }
+        unsubscribe_trade_request: WSJSONRequest = WSJSONRequest(payload=payload)
+
+        depth_params = [f"depth.{trading_pair}"]
+        payload = {
+            "method": "UNSUBSCRIBE",
+            "params": depth_params,
+        }
+        unsubscribe_orderbook_request: WSJSONRequest = WSJSONRequest(payload=payload)
+
+        try:
+            await self._ws_assistant.send(unsubscribe_trade_request)
+            await self._ws_assistant.send(unsubscribe_orderbook_request)
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().error(
+                f"Unexpected error occurred unsubscribing from {trading_pair}...",
+                exc_info=True
+            )
+            return False

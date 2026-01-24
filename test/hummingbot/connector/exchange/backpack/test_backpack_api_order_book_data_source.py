@@ -169,11 +169,9 @@ class BackpackAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
 
         result_subscribe_trades = {
             "result": None,
-            "id": 1
         }
         result_subscribe_diffs = {
             "result": None,
-            "id": 2
         }
 
         self.mocking_assistant.add_websocket_aiohttp_message(
@@ -193,13 +191,11 @@ class BackpackAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
         self.assertEqual(2, len(sent_subscription_messages))
         expected_trade_subscription = {
             "method": "SUBSCRIBE",
-            "params": [f"trade.{self.ex_trading_pair}"],
-            "id": 1}
+            "params": [f"trade.{self.ex_trading_pair}"]}
         self.assertEqual(expected_trade_subscription, sent_subscription_messages[0])
         expected_diff_subscription = {
             "method": "SUBSCRIBE",
-            "params": [f"depth.{self.ex_trading_pair}"],
-            "id": 2}
+            "params": [f"depth.{self.ex_trading_pair}"]}
         self.assertEqual(expected_diff_subscription, sent_subscription_messages[1])
 
         self.assertTrue(self._is_logged(
@@ -233,16 +229,18 @@ class BackpackAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
     async def test_subscribe_channels_raises_cancel_exception(self):
         mock_ws = MagicMock()
         mock_ws.send.side_effect = asyncio.CancelledError
+        self.data_source._ws_assistant = mock_ws
 
         with self.assertRaises(asyncio.CancelledError):
             await self.data_source._subscribe_channels(mock_ws)
 
     async def test_subscribe_channels_raises_exception_and_logs_error(self):
         mock_ws = MagicMock()
-        mock_ws.send.side_effect = Exception("Test Error")
+        self.data_source._ws_assistant = mock_ws
 
-        with self.assertRaises(Exception):
-            await self.data_source._subscribe_channels(mock_ws)
+        with patch.object(self.connector, 'exchange_symbol_associated_to_pair', side_effect=Exception("Test Error")):
+            with self.assertRaises(Exception):
+                await self.data_source._subscribe_channels(mock_ws)
 
         self.assertTrue(
             self._is_logged("ERROR", "Unexpected error occurred subscribing to order book trading and delta streams...")
@@ -388,3 +386,107 @@ class BackpackAPIOrderBookDataSourceUnitTests(IsolatedAsyncioWrapperTestCase):
         msg: OrderBookMessage = await msg_queue.get()
 
         self.assertEqual(1027024, msg.update_id)
+
+    # Dynamic subscription tests
+
+    async def test_subscribe_to_trading_pair_successful(self):
+        """Test successful subscription to a trading pair."""
+        mock_ws = AsyncMock()
+        self.data_source._ws_assistant = mock_ws
+
+        result = await self.data_source.subscribe_to_trading_pair(self.ex_trading_pair)
+
+        self.assertTrue(result)
+        # Backpack subscribes to 2 channels: trade and depth
+        self.assertEqual(2, mock_ws.send.call_count)
+
+        # Verify the subscription payloads
+        calls = mock_ws.send.call_args_list
+        trade_payload = calls[0][0][0].payload
+        depth_payload = calls[1][0][0].payload
+
+        self.assertEqual("SUBSCRIBE", trade_payload["method"])
+        self.assertEqual([f"trade.{self.ex_trading_pair}"], trade_payload["params"])
+        self.assertEqual("SUBSCRIBE", depth_payload["method"])
+        self.assertEqual([f"depth.{self.ex_trading_pair}"], depth_payload["params"])
+
+    async def test_subscribe_to_trading_pair_websocket_not_connected(self):
+        """Test subscription when WebSocket is not connected."""
+        self.data_source._ws_assistant = None
+
+        result = await self.data_source.subscribe_to_trading_pair(self.ex_trading_pair)
+
+        self.assertFalse(result)
+        self.assertTrue(
+            self._is_logged("WARNING", f"Cannot unsubscribe from {self.ex_trading_pair}: WebSocket not connected")
+        )
+
+    async def test_subscribe_to_trading_pair_raises_cancel_exception(self):
+        mock_ws = AsyncMock()
+        mock_ws.send.side_effect = asyncio.CancelledError
+        self.data_source._ws_assistant = mock_ws
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.data_source.subscribe_to_trading_pair(self.ex_trading_pair)
+
+    async def test_subscribe_to_trading_pair_raises_exception_and_logs_error(self):
+        mock_ws = AsyncMock()
+        mock_ws.send.side_effect = Exception("Test Error")
+        self.data_source._ws_assistant = mock_ws
+
+        result = await self.data_source.subscribe_to_trading_pair(self.ex_trading_pair)
+
+        self.assertFalse(result)
+        self.assertTrue(
+            self._is_logged("ERROR", f"Error subscribing to {self.ex_trading_pair}")
+        )
+
+    async def test_unsubscribe_from_trading_pair_successful(self):
+        mock_ws = AsyncMock()
+        self.data_source._ws_assistant = mock_ws
+
+        result = await self.data_source.unsubscribe_from_trading_pair(self.ex_trading_pair)
+
+        self.assertTrue(result)
+        # Backpack sends 2 unsubscribe messages: trade and depth
+        self.assertEqual(2, mock_ws.send.call_count)
+
+        # Verify the unsubscription payloads
+        calls = mock_ws.send.call_args_list
+        trade_payload = calls[0][0][0].payload
+        depth_payload = calls[1][0][0].payload
+
+        self.assertEqual("UNSUBSCRIBE", trade_payload["method"])
+        self.assertEqual([f"trade.{self.ex_trading_pair}"], trade_payload["params"])
+        self.assertEqual("UNSUBSCRIBE", depth_payload["method"])
+        self.assertEqual([f"depth.{self.ex_trading_pair}"], depth_payload["params"])
+
+    async def test_unsubscribe_from_trading_pair_websocket_not_connected(self):
+        self.data_source._ws_assistant = None
+
+        result = await self.data_source.unsubscribe_from_trading_pair(self.ex_trading_pair)
+
+        self.assertFalse(result)
+        self.assertTrue(
+            self._is_logged("WARNING", f"Cannot unsubscribe from {self.ex_trading_pair}: WebSocket not connected")
+        )
+
+    async def test_unsubscribe_from_trading_pair_raises_cancel_exception(self):
+        mock_ws = AsyncMock()
+        mock_ws.send.side_effect = asyncio.CancelledError
+        self.data_source._ws_assistant = mock_ws
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.data_source.unsubscribe_from_trading_pair(self.ex_trading_pair)
+
+    async def test_unsubscribe_from_trading_pair_raises_exception_and_logs_error(self):
+        mock_ws = AsyncMock()
+        mock_ws.send.side_effect = Exception("Test Error")
+        self.data_source._ws_assistant = mock_ws
+
+        result = await self.data_source.unsubscribe_from_trading_pair(self.ex_trading_pair)
+
+        self.assertFalse(result)
+        self.assertTrue(
+            self._is_logged("ERROR", f"Unexpected error occurred unsubscribing from {self.ex_trading_pair}...")
+        )
