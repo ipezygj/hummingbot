@@ -585,7 +585,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         success, message = await self.exchange._set_trading_pair_leverage(trading_pair, leverage)
         self.assertEqual(success, False)
-        self.assertIn("Failed to set leverage", message)
+        self.assertIn("Error setting leverage", message)
 
     @aioresponses()
     async def test_fetch_funding_payment_successful(self, req_mock):
