@@ -123,6 +123,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.sell_order_completed_logger = EventLogger()
         self.order_cancelled_logger = EventLogger()
         self.order_filled_logger = EventLogger()
+        self.order_failure_logger = EventLogger()
         self.funding_payment_completed_logger = EventLogger()
 
         events_and_loggers = [
@@ -130,6 +131,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             (MarketEvent.SellOrderCompleted, self.sell_order_completed_logger),
             (MarketEvent.OrderCancelled, self.order_cancelled_logger),
             (MarketEvent.OrderFilled, self.order_filled_logger),
+            (MarketEvent.OrderFailure, self.order_failure_logger),
             (MarketEvent.FundingPaymentCompleted, self.funding_payment_completed_logger)]
 
         for event, logger in events_and_loggers:
@@ -978,7 +980,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
     async def test_user_stream_update_for_order_failure(self):
         self._simulate_trading_rules_initialized()
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.BUY,
@@ -986,15 +988,19 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             leverage=1,
-            position_action=PositionAction.OPEN,
+            position_action=PositionAction.NIL,
         )
+
+        # Set the order to OPEN state so it can receive updates
+        tracked_order = self.exchange._order_tracker.fetch_order("2200123")
+        tracked_order.current_state = OrderState.OPEN
 
         order_update = {
             "data": {
-                "e": "orderUpdate",
+                "e": "triggerFailed",
                 "E": 1694687692980000,
                 "s": self.symbol,
-                "c": "OID1",
+                "c": "2200123",
                 "S": "Bid",
                 "X": "TriggerFailed",
                 "i": "8886774",
@@ -1014,4 +1020,10 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.test_task = self.local_event_loop.create_task(self.exchange._user_stream_event_listener())
         await self.resume_test_event.wait()
 
-        self.assertEqual(OrderState.FAILED, self.exchange.in_flight_orders["OID1"].current_state)
+        # Yield control to allow the event loop to process the order update
+        await asyncio.sleep(0)
+
+        # Check that the order failure event was triggered
+        self.assertEqual(1, len(self.order_failure_logger.event_log))
+        failure_event = self.order_failure_logger.event_log[0]
+        self.assertEqual("2200123", failure_event.order_id)
