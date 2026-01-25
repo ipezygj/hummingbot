@@ -68,6 +68,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         self._nonce_creator = NonceCreator.for_milliseconds()
         self._leverage = None  # Will be fetched on first use
         self._leverage_initialized = False
+        self._position_mode = None
         super().__init__(balance_asset_limit, rate_limits_share_pct)
         # Backpack does not provide balance updates through websocket, use REST polling instead
         self.real_time_balance_update = False
