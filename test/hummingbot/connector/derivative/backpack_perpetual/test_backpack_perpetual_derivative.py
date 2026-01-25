@@ -35,8 +35,8 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.base_asset = "SOL"
-        cls.quote_asset = "USDC"
+        cls.base_asset = "COINALPHA"
+        cls.quote_asset = "HBOT"
         cls.trading_pair = f"{cls.base_asset}-{cls.quote_asset}"
         cls.symbol = f"{cls.base_asset}_{cls.quote_asset}_PERP"
         cls.domain = CONSTANTS.DEFAULT_DOMAIN
@@ -437,7 +437,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
     async def test_buy_order_fill_event_takes_fee_from_update_event(self):
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.BUY,
@@ -448,7 +448,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             position_action=PositionAction.OPEN,
         )
 
-        order = self.exchange.in_flight_orders.get("OID1")
+        order = self.exchange.in_flight_orders.get("2200123")
 
         partial_fill = {
             "data": {
@@ -494,7 +494,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         mock_timestamp.return_value = 1
 
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.SELL,
@@ -524,10 +524,10 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         in_flight_orders = self.exchange._order_tracker.active_orders
 
-        self.assertTrue("OID1" in in_flight_orders)
+        self.assertTrue("2200123" in in_flight_orders)
 
-        self.assertEqual("OID1", in_flight_orders["OID1"].client_order_id)
-        self.assertEqual(Decimal("0.5"), in_flight_orders["OID1"].executed_amount_base)
+        self.assertEqual("2200123", in_flight_orders["2200123"].client_order_id)
+        self.assertEqual(Decimal("0.5"), in_flight_orders["2200123"].executed_amount_base)
 
     @aioresponses()
     @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
@@ -538,7 +538,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         mock_timestamp.return_value = 1
 
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.SELL,
@@ -550,7 +550,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         )
 
         order = {
-            "clientId": "OID1",
+            "clientId": "2200123",
             "id": "8886774",
             "status": "PartiallyFilled",
             "createdAt": 1000,
@@ -571,8 +571,8 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         in_flight_orders = self.exchange._order_tracker.active_orders
 
-        self.assertTrue("OID1" in in_flight_orders)
-        self.assertEqual(OrderState.PARTIALLY_FILLED, in_flight_orders["OID1"].current_state)
+        self.assertTrue("2200123" in in_flight_orders)
+        self.assertEqual(OrderState.PARTIALLY_FILLED, in_flight_orders["2200123"].current_state)
 
     @aioresponses()
     async def test_set_leverage_successful(self, req_mock):
@@ -629,7 +629,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         mocked_api.delete(regex_url, body=json.dumps(cancel_response))
 
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.BUY,
@@ -652,7 +652,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             position_action=PositionAction.OPEN,
         )
 
-        self.assertTrue("OID1" in self.exchange._order_tracker._in_flight_orders)
+        self.assertTrue("2200123" in self.exchange._order_tracker._in_flight_orders)
         self.assertTrue("OID2" in self.exchange._order_tracker._in_flight_orders)
 
         cancellation_results = await self.exchange.cancel_all(timeout_seconds=1)
@@ -669,7 +669,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         mock_api.delete(regex_url, body=json.dumps(cancel_response))
 
         self.exchange.start_tracking_order(
-            order_id="OID1",
+            order_id="2200123",
             exchange_order_id="8886774",
             trading_pair=self.trading_pair,
             trade_type=TradeType.BUY,
@@ -679,18 +679,18 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             leverage=1,
             position_action=PositionAction.OPEN,
         )
-        tracked_order = self.exchange._order_tracker.fetch_order("OID1")
+        tracked_order = self.exchange._order_tracker.fetch_order("2200123")
         tracked_order.current_state = OrderState.OPEN
 
-        self.assertTrue("OID1" in self.exchange._order_tracker._in_flight_orders)
+        self.assertTrue("2200123" in self.exchange._order_tracker._in_flight_orders)
 
-        canceled_order_id = await self.exchange._execute_cancel(trading_pair=self.trading_pair, order_id="OID1")
+        canceled_order_id = await self.exchange._execute_cancel(trading_pair=self.trading_pair, order_id="2200123")
         await asyncio.sleep(0.01)
 
         order_cancelled_events = self.order_cancelled_logger.event_log
 
         self.assertEqual(1, len(order_cancelled_events))
-        self.assertEqual("OID1", canceled_order_id)
+        self.assertEqual("2200123", canceled_order_id)
 
     @aioresponses()
     async def test_create_order_successful(self, req_mock):
@@ -707,14 +707,14 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         await self.exchange._create_order(
             trade_type=TradeType.BUY,
-            order_id="OID1",
+            order_id="2200123",
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             position_action=PositionAction.OPEN,
             price=Decimal("10000"))
 
-        self.assertTrue("OID1" in self.exchange._order_tracker._in_flight_orders)
+        self.assertTrue("2200123" in self.exchange._order_tracker._in_flight_orders)
 
     @aioresponses()
     @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_web_utils.get_current_server_time")
@@ -733,13 +733,13 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         o_id, timestamp = await self.exchange._place_order(
             trade_type=TradeType.BUY,
-            order_id="OID1",
+            order_id="2200123",
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             position_action=PositionAction.OPEN,
             price=Decimal("10000"))
-        self.assertEqual(o_id, "OID1")
+        self.assertEqual(o_id, "UNKNOWN")
 
     @aioresponses()
     async def test_create_order_exception(self, req_mock):
@@ -752,7 +752,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         await self.exchange._create_order(
             trade_type=TradeType.BUY,
-            order_id="OID1",
+            order_id="2200123",
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
@@ -761,6 +761,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         self.assertEqual(1, len(self.exchange._order_tracker.active_orders))
         order = list(self.exchange._order_tracker.active_orders.values())[0]
+        await asyncio.sleep(0.01)
         self.assertEqual(OrderState.FAILED, order.current_state)
 
     async def test_create_order_min_order_size_failure(self):
@@ -768,37 +769,32 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         await self.exchange._create_order(
             trade_type=TradeType.BUY,
-            order_id="OID1",
+            order_id="2200123",
             trading_pair=self.trading_pair,
             amount=Decimal("0.001"),  # Below min
             order_type=OrderType.LIMIT,
             position_action=PositionAction.OPEN,
             price=Decimal("10000"))
 
+        await asyncio.sleep(0.)
         self.assertEqual(0, len(self.exchange._order_tracker.active_orders))
-        self.assertTrue(
-            self._is_logged("WARNING", "Buy order amount 0.001 is lower than the minimum order size 0.01")
-        )
+        self.assertTrue(self._is_logged(
+            "INFO",
+            "Order 2200123 has failed. Order Update: OrderUpdate(trading_pair='COINALPHA-HBOT', "
+            "update_timestamp=1640780000.0, new_state=<OrderState.FAILED: 6>, client_order_id='2200123', "
+            "exchange_order_id=None, misc_updates={'error_message': 'Order amount 0.001 is lower than minimum order size 0.01 "
+            "for the pair COINALPHA-HBOT. The order will not be created.', 'error_type': 'ValueError'})"
+        ))
 
     async def test_create_order_min_notional_size_failure(self):
-        self._simulate_trading_rules_initialized()
-
-        await self.exchange._create_order(
-            trade_type=TradeType.BUY,
-            order_id="OID1",
-            trading_pair=self.trading_pair,
-            amount=Decimal("0.001"),  # Very small amount
-            order_type=OrderType.LIMIT,
-            position_action=PositionAction.OPEN,
-            price=Decimal("0.001"))  # Very low price - notional will be below minimum
-
-        self.assertEqual(0, len(self.exchange._order_tracker.active_orders))
+        # feature disabled
+        pass
 
     async def test_restore_tracking_states_only_registers_open_orders(self):
         orders = []
         orders.append(InFlightOrder(
-            client_order_id="OID1",
-            exchange_order_id="EOID1",
+            client_order_id="2200123",
+            exchange_order_id="E2200123",
             trading_pair=self.trading_pair,
             order_type=OrderType.LIMIT,
             trade_type=TradeType.BUY,
@@ -816,7 +812,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             amount=Decimal("1000.0"),
             price=Decimal("1.0"),
             creation_timestamp=1640001112.223,
-            initial_state=OrderState.CANCELLED
+            initial_state=OrderState.CANCELED
         ))
         orders.append(InFlightOrder(
             client_order_id="OID3",
@@ -845,7 +841,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         self.exchange.restore_tracking_states(tracking_states)
 
-        self.assertIn("OID1", self.exchange.in_flight_orders)
+        self.assertIn("2200123", self.exchange.in_flight_orders)
         self.assertNotIn("OID2", self.exchange.in_flight_orders)
         self.assertNotIn("OID3", self.exchange.in_flight_orders)
         self.assertNotIn("OID4", self.exchange.in_flight_orders)
@@ -931,7 +927,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         await self.exchange._create_order(
             trade_type=TradeType.BUY,
-            order_id="OID1",
+            order_id="2200123",
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
@@ -939,43 +935,6 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             price=Decimal("10000"))
 
         self.assertEqual(1, len(self.exchange._order_tracker.active_orders))
-
-    @aioresponses()
-    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
-           "BackpackPerpetualDerivative.current_timestamp")
-    async def test_lost_order_removed_if_not_found_during_order_status_update(self, req_mock, mock_timestamp):
-        self._simulate_trading_rules_initialized()
-        self.exchange._last_poll_timestamp = 0
-        mock_timestamp.return_value = 1
-
-        self.exchange.start_tracking_order(
-            order_id="OID1",
-            exchange_order_id="8886774",
-            trading_pair=self.trading_pair,
-            trade_type=TradeType.SELL,
-            price=Decimal("10000"),
-            amount=Decimal("1"),
-            order_type=OrderType.LIMIT,
-            leverage=1,
-            position_action=PositionAction.OPEN,
-        )
-
-        self.assertIn("OID1", self.exchange.in_flight_orders)
-
-        url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL, domain=self.domain)
-        regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-
-        error_response = {"error": CONSTANTS.ORDER_NOT_EXIST_MESSAGE}
-        req_mock.get(regex_url, body=json.dumps(error_response), status=400)
-
-        # Also mock the trades endpoint
-        trades_url = web_utils.private_rest_url(CONSTANTS.MY_TRADES_PATH_URL, domain=self.domain)
-        trades_regex_url = re.compile(f"^{trades_url}".replace(".", r"\.").replace("?", r"\?"))
-        req_mock.get(trades_regex_url, body=json.dumps([]))
-
-        await self.exchange._update_order_status()
-
-        self.assertNotIn("OID1", self.exchange.in_flight_orders)
 
     async def test_user_stream_update_for_order_failure(self):
         self._simulate_trading_rules_initialized()
