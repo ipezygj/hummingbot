@@ -154,12 +154,34 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
     def _get_position_risk_api_endpoint_single_position_list(self) -> List[Dict[str, Any]]:
         positions = [
             {
-                "symbol": self.symbol,
-                "netQuantity": "1",
-                "entryPrice": "10",
-                "pnlUnrealized": "1",
-                "imf": "0.01",
-            }
+                'breakEvenPrice': '126.9307',
+                'cumulativeFundingPayment': '-0.000105',
+                'cumulativeInterest': '0',
+                'entryPrice': '126.93',
+                'estLiquidationPrice': '0',
+                'imf': '0.01',
+                'imfFunction': {
+                    'base': '0.02',
+                    'factor': '0.00006',
+                    'type': 'sqrt'
+                },
+                'markPrice': '121.98',
+                'mmf': '0.0135',
+                'mmfFunction': {
+                    'base': '0.0135',
+                    'factor': '0.000036',
+                    'type': 'sqrt'
+                },
+                'netCost': '-1.2697',
+                'netExposureNotional': '1.2198',
+                'netExposureQuantity': '0.01',
+                'netQuantity': '-0.01',
+                'pnlRealized': '0.051',
+                'pnlUnrealized': '0.0048',
+                'positionId': '28563667732',
+                'subaccountId': None,
+                'symbol': self.symbol,
+                'userId': 1905955}
         ]
         return positions
 
@@ -230,8 +252,13 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         }
 
     @aioresponses()
-    async def test_existing_account_position_detected_on_positions_update(self, req_mock):
+    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
+           "BackpackPerpetualDerivative._initialize_leverage_if_needed")
+    async def test_existing_account_position_detected_on_positions_update(self, req_mock, mock_leverage):
         self._simulate_trading_rules_initialized()
+        mock_leverage.return_value = None
+        self.exchange._leverage = Decimal("1")
+        self.exchange._leverage_initialized = True
 
         url = web_utils.private_rest_url(CONSTANTS.POSITIONS_PATH_URL, domain=self.domain)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
@@ -246,8 +273,14 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.assertEqual(pos.trading_pair, self.trading_pair)
 
     @aioresponses()
-    async def test_account_position_updated_on_positions_update(self, req_mock):
+    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
+           "BackpackPerpetualDerivative._initialize_leverage_if_needed")
+    async def test_account_position_updated_on_positions_update(self, req_mock, mock_leverage):
         self._simulate_trading_rules_initialized()
+        mock_leverage.return_value = None
+        self.exchange._leverage = Decimal("1")
+        self.exchange._leverage_initialized = True
+
         url = web_utils.private_rest_url(CONSTANTS.POSITIONS_PATH_URL, domain=self.domain)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
@@ -258,18 +291,24 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         self.assertEqual(len(self.exchange.account_positions), 1)
         pos = list(self.exchange.account_positions.values())[0]
-        self.assertEqual(pos.amount, 1)
+        self.assertEqual(pos.amount, Decimal("0.01"))
 
-        positions[0]["netQuantity"] = "2"
+        positions[0]["netQuantity"] = "2.01"
         req_mock.get(regex_url, body=json.dumps(positions))
         await self.exchange._update_positions()
 
         pos = list(self.exchange.account_positions.values())[0]
-        self.assertEqual(pos.amount, 2)
+        self.assertEqual(pos.amount, Decimal("2.01"))
 
     @aioresponses()
-    async def test_new_account_position_detected_on_positions_update(self, req_mock):
+    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
+           "BackpackPerpetualDerivative._initialize_leverage_if_needed")
+    async def test_new_account_position_detected_on_positions_update(self, req_mock, mock_leverage):
         self._simulate_trading_rules_initialized()
+        mock_leverage.return_value = None
+        self.exchange._leverage = Decimal("1")
+        self.exchange._leverage_initialized = True
+
         url = web_utils.private_rest_url(CONSTANTS.POSITIONS_PATH_URL, domain=self.domain)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
@@ -286,8 +325,14 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.assertEqual(len(self.exchange.account_positions), 1)
 
     @aioresponses()
-    async def test_closed_account_position_removed_on_positions_update(self, req_mock):
+    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative."
+           "BackpackPerpetualDerivative._initialize_leverage_if_needed")
+    async def test_closed_account_position_removed_on_positions_update(self, req_mock, mock_leverage):
         self._simulate_trading_rules_initialized()
+        mock_leverage.return_value = None
+        self.exchange._leverage = Decimal("1")
+        self.exchange._leverage_initialized = True
+
         url = web_utils.private_rest_url(CONSTANTS.POSITIONS_PATH_URL, domain=self.domain)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 

@@ -66,6 +66,8 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         self._trading_pairs = trading_pairs
         self._last_trades_poll_backpack_timestamp = 1.0
         self._nonce_creator = NonceCreator.for_milliseconds()
+        self._leverage = None  # Will be fetched on first use
+        self._leverage_initialized = False
         super().__init__(balance_asset_limit, rate_limits_share_pct)
         # Backpack does not provide balance updates through websocket, use REST polling instead
         self.real_time_balance_update = False
@@ -609,7 +611,26 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         trading_rule: TradingRule = self._trading_rules.get(trading_pair)
         return trading_rule.sell_order_collateral_token
 
+    async def _initialize_leverage_if_needed(self):
+        """Fetch and initialize leverage from exchange if not already set."""
+        if not self._leverage_initialized:
+            try:
+                account_info = await self._api_get(
+                    path_url=CONSTANTS.ACCOUNT_PATH_URL,
+                    is_auth_required=True
+                )
+                self._leverage = Decimal(str(account_info.get("leverageLimit", "1")))
+                self._leverage_initialized = True
+            except Exception as e:
+                self.logger().warning(f"Failed to fetch leverage. Positions will be loaded on next polling loop: {e}")
+                raise
+
     async def _update_positions(self):
+        try:
+            await self._initialize_leverage_if_needed()
+        except Exception:
+            return
+
         params = {
             "instruction": "positionQuery",
         }
@@ -672,15 +693,8 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         return True, ""
 
     async def _set_trading_pair_leverage(self, trading_pair: str, leverage: int) -> Tuple[bool, str]:
-        account_info = await self._api_get(path_url=CONSTANTS.ACCOUNT_PATH_URL,
-                                           is_auth_required=True)
-        current_leverage = account_info.get("leverageLimit")
         if not leverage:
             return False, f"There is no leverage available for {trading_pair}."
-
-        self._leverage = current_leverage
-        if current_leverage == leverage:
-            return True, ""
 
         data = {
             "instruction": "accountUpdate",
@@ -702,7 +716,8 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
             # Check if status is 2xx (success)
             if 200 <= response.status < 300:
                 self.logger().info(f"Successfully set leverage to {leverage} for account")
-                self._leverage = leverage
+                self._leverage = Decimal(str(leverage))
+                self._leverage_initialized = True
                 return True, ""
             else:
                 error_text = await response.text()
