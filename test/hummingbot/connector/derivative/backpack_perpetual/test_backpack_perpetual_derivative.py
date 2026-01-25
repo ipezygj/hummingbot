@@ -187,13 +187,24 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
     def _get_account_update_ws_event_single_position_dict(self) -> Dict[str, Any]:
         account_update = {
-            "stream": "account.positionUpdate",
-            "data": {
-                "s": self.symbol,
-                "q": "1",
-                "P": "1",
-                "B": "10",
-            }
+            'data': {
+                'B': '126.97',
+                'E': 1769366599828079,
+                'M': '120.96',
+                'P': '0.0009',
+                'Q': '0.01',
+                'T': 1769366599828078,
+                'b': '126.9307',
+                'f': '0.02',
+                'i': 28563667732,
+                'l': '0',
+                'm': '0.0135',
+                'n': '1.2096',
+                'p': '0.0592',
+                'q': '-0.01',
+                's': self.symbol
+            },
+            'stream': 'account.positionUpdate'
         }
         return account_update
 
@@ -887,17 +898,19 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
     async def test_user_stream_logs_errors(self):
         mock_user_stream = AsyncMock()
-        mock_user_stream.get.side_effect = Exception("Test Error")
+        account_update = self._get_account_update_ws_event_single_position_dict()
+        del account_update["data"]["P"]
+        mock_user_stream.get.side_effect = functools.partial(
+            self._return_calculation_and_set_done_event,
+            lambda: account_update
+        )
 
         self.exchange._user_stream_tracker._user_stream = mock_user_stream
 
-        try:
+        # Patch _parse_and_process_order_message to raise an exception
+        with patch.object(self.exchange, '_parse_and_process_position_message', side_effect=Exception("Test Error")):
             self.test_task = self.local_event_loop.create_task(self.exchange._user_stream_event_listener())
-            await asyncio.wait_for(self.test_task, timeout=1)
-        except asyncio.TimeoutError:
-            pass
-        except Exception:
-            pass
+            await self.resume_test_event.wait()
 
         self.assertTrue(
             self._is_logged("ERROR", "Unexpected error in user stream listener loop."))
