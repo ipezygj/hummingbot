@@ -222,20 +222,43 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
     ) -> List[Dict[str, Any]]:
         mocked_exchange_info = [
             {
-                "baseSymbol": self.base_asset,
-                "quoteSymbol": self.quote_asset,
-                "symbol": self.symbol,
-                "marketType": "PERP",
-                "filters": {
-                    "price": {
-                        "tickSize": str(min_price_increment),
-                        "minPrice": "0.01",
+                'baseSymbol': self.base_asset,
+                'createdAt': '2025-01-21T06:34:54.691858',
+                'filters': {
+                    'price': {
+                        'borrowEntryFeeMaxMultiplier': None,
+                        'borrowEntryFeeMinMultiplier': None,
+                        'maxImpactMultiplier': '1.03',
+                        'maxMultiplier': '1.25',
+                        'maxPrice': None,
+                        'meanMarkPriceBand': {
+                            'maxMultiplier': '1.03',
+                            'minMultiplier': '0.97'
+                        },
+                        'meanPremiumBand': None,
+                        'minImpactMultiplier': '0.97',
+                        'minMultiplier': '0.75',
+                        'minPrice': '0.01',
+                        'tickSize': str(min_price_increment)
                     },
-                    "quantity": {
-                        "minQuantity": str(min_order_size),
-                        "stepSize": str(min_base_amount_increment),
+                    'quantity': {
+                        'maxQuantity': None,
+                        'minQuantity': str(min_order_size),
+                        'stepSize': str(min_base_amount_increment)
                     }
                 },
+                'fundingInterval': None,
+                'fundingRateLowerBound': None,
+                'fundingRateUpperBound': None,
+                'imfFunction': None,
+                'marketType': 'PERP',
+                'mmfFunction': None,
+                'openInterestLimit': '0',
+                'orderBookState': 'Open',
+                'positionLimitWeight': None,
+                'quoteSymbol': self.quote_asset,
+                'symbol': self.symbol,
+                'visible': True
             }
         ]
         return mocked_exchange_info
