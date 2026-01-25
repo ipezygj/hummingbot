@@ -837,18 +837,18 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.assertNotIn("OID3", self.exchange.in_flight_orders)
         self.assertNotIn("OID4", self.exchange.in_flight_orders)
 
-    @patch("hummingbot.connector.utils.get_tracking_nonce")
-    async def test_client_order_id_on_order(self, mocked_nonce):
-        mocked_nonce.return_value = 7
+    @patch("hummingbot.connector.derivative.backpack_perpetual.backpack_perpetual_derivative.get_new_numeric_client_order_id")
+    async def test_client_order_id_on_order(self, mock_id_get):
+        mock_id_get.return_value = 123
 
         result = self.exchange.buy(
             trading_pair=self.trading_pair,
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             price=Decimal("2"),
-            position_action="OPEN",
+            position_action=PositionAction.NIL,
         )
-        expected_client_order_id = "HBOT220000000007"
+        expected_client_order_id = "2200123"
 
         self.assertEqual(result, expected_client_order_id)
 
@@ -857,9 +857,9 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             amount=Decimal("1"),
             order_type=OrderType.LIMIT,
             price=Decimal("2"),
-            position_action="OPEN",
+            position_action=PositionAction.NIL,
         )
-        expected_client_order_id = "HBOT220000000007"
+        expected_client_order_id = "2200123"
 
         self.assertEqual(result, expected_client_order_id)
 
