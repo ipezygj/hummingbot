@@ -869,13 +869,11 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
         response = {
-            "balances": [
-                {
-                    "symbol": self.quote_asset,
-                    "available": "100.5",
-                    "locked": "50.5"
-                }
-            ]
+            self.quote_asset: {
+                "available": "100.5",
+                "locked": "50.5",
+                "staked": "0"
+            }
         }
 
         mock_api.get(regex_url, body=json.dumps(response))
