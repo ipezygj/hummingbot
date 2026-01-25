@@ -198,11 +198,16 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         return account_update
 
     def _get_income_history_dict(self) -> List:
-        income_history = [{
-            "fundingRate": "0.0001",
-            "quantity": "1",
-            "intervalEndTimestamp": "2021-01-01T00:00:00.000Z",
-        }]
+        income_history = [
+            {
+                'fundingRate': '-0.0000273',
+                'intervalEndTimestamp': '2026-01-25T18:00:00',
+                'quantity': '-0.000034',
+                'subaccountId': 0,
+                'symbol': self.symbol,
+                'userId': 1905955
+            }
+        ]
         return income_history
 
     def _get_funding_info_dict(self) -> Dict[str, Any]:
