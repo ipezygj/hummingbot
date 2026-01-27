@@ -184,6 +184,17 @@ class OrderExecutor(ExecutorBase):
         else:
             return self.config.price
 
+    def get_price_for_balance_validation(self) -> Decimal:
+        """
+        Get the price to use for balance validation.
+        For MARKET orders, uses current market price since NaN cannot be used in calculations.
+
+        :return: The price for balance validation.
+        """
+        if self.config.execution_strategy == ExecutionStrategy.MARKET:
+            return self.current_market_price
+        return self.get_order_price()
+
     def renew_order(self):
         """
         Renew the order with a new price.
@@ -289,6 +300,7 @@ class OrderExecutor(ExecutorBase):
         return lines
 
     async def validate_sufficient_balance(self):
+        price_for_validation = self.get_price_for_balance_validation()
         if self.is_perpetual_connector(self.config.connector_name):
             order_candidate = PerpetualOrderCandidate(
                 trading_pair=self.config.trading_pair,
@@ -296,7 +308,7 @@ class OrderExecutor(ExecutorBase):
                 order_type=self.get_order_type(),
                 order_side=self.config.side,
                 amount=self.config.amount,
-                price=self.config.price,
+                price=price_for_validation,
                 leverage=Decimal(self.config.leverage),
             )
         else:
@@ -306,7 +318,7 @@ class OrderExecutor(ExecutorBase):
                 order_type=self.get_order_type(),
                 order_side=self.config.side,
                 amount=self.config.amount,
-                price=self.config.price,
+                price=price_for_validation,
             )
         adjusted_order_candidates = self.adjust_order_candidates(self.config.connector_name, [order_candidate])
         if adjusted_order_candidates[0].amount == Decimal("0"):
