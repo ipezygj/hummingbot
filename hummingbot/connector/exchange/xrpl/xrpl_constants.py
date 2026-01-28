@@ -153,7 +153,7 @@ CONNECTION_POOL_HEALTH_CHECK_INTERVAL = 30.0  # Seconds between health checks
 CONNECTION_POOL_MAX_AGE = 300.0  # Max connection age before refresh (seconds)
 CONNECTION_POOL_TIMEOUT = 30.0  # Connection timeout (seconds)
 CONNECTION_MAX_CONSECUTIVE_ERRORS = 3  # Errors before marking unhealthy
-PROACTIVE_PING_INTERVAL = 15.0  # Seconds between proactive pings
+PROACTIVE_PING_INTERVAL = 20.0  # Seconds between proactive pings
 
 # =============================================================================
 # Worker Pool Configuration
@@ -167,9 +167,9 @@ QUERY_TIMEOUT = 30.0  # Query timeout
 CANCEL_TX_TIMEOUT = 30.0  # Cancel transaction timeout
 
 # Worker pool sizing
-QUERY_WORKER_POOL_SIZE = 2  # Concurrent query workers
-VERIFICATION_WORKER_POOL_SIZE = 2  # Concurrent verification workers
-TX_WORKER_POOL_SIZE = 2  # Concurrent transaction workers (per wallet)
+QUERY_WORKER_POOL_SIZE = 1  # Concurrent query workers
+VERIFICATION_WORKER_POOL_SIZE = 1  # Concurrent verification workers
+TX_WORKER_POOL_SIZE = 1  # Concurrent transaction workers (per wallet)
 
 # Worker pool behavior
 WORKER_TASK_TIMEOUT = 30.0  # Individual task processing timeout (seconds)
@@ -181,7 +181,7 @@ WORKER_POOL_TASK_QUEUE_SIZE = 100  # Max pending tasks per pool
 # =============================================================================
 # Polling Data Source Configuration
 # =============================================================================
-POLLING_INTERVAL = 2.0  # Account state poll interval (seconds)
+POLLING_INTERVAL = 3.0  # Account state poll interval (seconds)
 SEEN_TX_HASHES_MAX_SIZE = 1000  # Max transaction hashes for deduplication
 
 # =============================================================================
