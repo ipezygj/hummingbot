@@ -857,7 +857,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             price=Decimal("2"),
             position_action=PositionAction.NIL,
         )
-        expected_client_order_id = "2200123"
+        expected_client_order_id = "123"
 
         self.assertEqual(result, expected_client_order_id)
 
@@ -868,7 +868,7 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
             price=Decimal("2"),
             position_action=PositionAction.NIL,
         )
-        expected_client_order_id = "2200123"
+        expected_client_order_id = "123"
 
         self.assertEqual(result, expected_client_order_id)
 
