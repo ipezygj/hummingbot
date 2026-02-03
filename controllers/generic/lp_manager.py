@@ -9,7 +9,7 @@ from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.logger import HummingbotLogger
 from hummingbot.strategy_v2.controllers import ControllerBase, ControllerConfigBase
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
-from hummingbot.strategy_v2.executors.lp_position_executor.data_types import LPPositionExecutorConfig, LPPositionStates
+from hummingbot.strategy_v2.executors.lp_executor.data_types import LPExecutorConfig, LPExecutorStates
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
 
@@ -112,11 +112,11 @@ class LPController(ControllerBase):
         state = executor.custom_info.get("state")
 
         # Don't take action while executor is in transition states
-        if state in [LPPositionStates.OPENING.value, LPPositionStates.CLOSING.value]:
+        if state in [LPExecutorStates.OPENING.value, LPExecutorStates.CLOSING.value]:
             return actions
 
         # Handle failed executor - don't auto-retry, require manual intervention
-        if state == LPPositionStates.RETRIES_EXCEEDED.value:
+        if state == LPExecutorStates.RETRIES_EXCEEDED.value:
             self.logger().error("Executor failed after max retries. Manual intervention required.")
             return actions
 
@@ -125,7 +125,7 @@ class LPController(ControllerBase):
         current_price = executor.custom_info.get("current_price")
 
         # Rebalancing logic
-        if state == LPPositionStates.OUT_OF_RANGE.value:
+        if state == LPExecutorStates.OUT_OF_RANGE.value:
             if out_of_range_since is not None:
                 current_time = self.market_data_provider.time()
                 elapsed = current_time - out_of_range_since
@@ -152,7 +152,7 @@ class LPController(ControllerBase):
 
         return actions
 
-    def _create_executor_config(self) -> LPPositionExecutorConfig:
+    def _create_executor_config(self) -> LPExecutorConfig:
         """Create executor config - initial or rebalanced"""
         if self._last_executor_info:
             # Rebalancing - single-sided position
@@ -188,7 +188,7 @@ class LPController(ControllerBase):
         else:
             side = 2  # SELL - base only, positioned to sell base
 
-        return LPPositionExecutorConfig(
+        return LPExecutorConfig(
             timestamp=self.market_data_provider.time(),
             connector_name=self.config.connector_name,
             pool_address=self.config.pool_address,

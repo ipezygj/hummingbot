@@ -52,7 +52,7 @@ NOT_ACTIVE → OPENING → IN_RANGE ↔ OUT_OF_RANGE → CLOSING → COMPLETE
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   LPPositionExecutor                             │
+│                   LPExecutor                             │
 │  - Single LP position lifecycle (open → monitor → close)        │
 │  - Tracks out_of_range_since (when price exits range)          │
 │  - Reports state via get_custom_info()                          │
@@ -68,7 +68,7 @@ NOT_ACTIVE → OPENING → IN_RANGE ↔ OUT_OF_RANGE → CLOSING → COMPLETE
 ### Decision 1: Single Executor Per Position vs Multi-Position Executor
 
 **Options:**
-- **A) Single Executor Per Position**: Each LPPositionExecutor manages one position's lifecycle (open → monitor → close)
+- **A) Single Executor Per Position**: Each LPExecutor manages one position's lifecycle (open → monitor → close)
 - **B) Multi-Position Executor**: One executor manages multiple positions simultaneously
 
 **Recommendation: Option A - Single Executor Per Position**
@@ -150,7 +150,7 @@ NOT_ACTIVE → OPENING → IN_RANGE ↔ OUT_OF_RANGE → CLOSING → COMPLETE
 
 ## Data Types Design
 
-### LPPositionExecutorConfig
+### LPExecutorConfig
 
 ```python
 from decimal import Decimal
@@ -161,7 +161,7 @@ from pydantic import ConfigDict
 from hummingbot.strategy_v2.executors.data_types import ExecutorConfigBase
 
 
-class LPPositionExecutorConfig(ExecutorConfigBase):
+class LPExecutorConfig(ExecutorConfigBase):
     """
     Configuration for LP Position Executor.
 
@@ -172,7 +172,7 @@ class LPPositionExecutorConfig(ExecutorConfigBase):
 
     Future: Multi-pool version (like multi_grid_strike.py) can be added later.
     """
-    type: Literal["lp_position_executor"] = "lp_position_executor"
+    type: Literal["lp_executor"] = "lp_executor"
 
     # Pool identification
     connector_name: str  # e.g., "meteora/clmm"
@@ -202,7 +202,7 @@ class LPPositionExecutorConfig(ExecutorConfigBase):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 ```
 
-### LPPositionExecutor State
+### LPExecutor State
 
 LP-specific states that include price location (different from GridLevel):
 
@@ -216,7 +216,7 @@ from pydantic import BaseModel, ConfigDict
 from hummingbot.strategy_v2.models.executors import TrackedOrder
 
 
-class LPPositionStates(Enum):
+class LPExecutorStates(Enum):
     """
     State machine for LP position lifecycle.
     Price direction (above/below range) is determined from custom_info, not state.
@@ -230,7 +230,7 @@ class LPPositionStates(Enum):
     RETRIES_EXCEEDED = "RETRIES_EXCEEDED"  # Failed to open/close after max retries (blockchain down?)
 
 
-class LPPositionState(BaseModel):
+class LPExecutorState(BaseModel):
     """Tracks a single LP position state within executor."""
     position_address: Optional[str] = None
     lower_price: Decimal = Decimal("0")
@@ -249,7 +249,7 @@ class LPPositionState(BaseModel):
     active_close_order: Optional[TrackedOrder] = None
 
     # State
-    state: LPPositionStates = LPPositionStates.NOT_ACTIVE
+    state: LPExecutorStates = LPExecutorStates.NOT_ACTIVE
 
     # Timer tracking (executor tracks when it went out of bounds)
     out_of_range_since: Optional[float] = None
@@ -270,31 +270,31 @@ class LPPositionState(BaseModel):
         # Check order states first (takes priority)
         if self.active_close_order is not None:
             if self.active_close_order.is_filled:
-                self.state = LPPositionStates.COMPLETE
+                self.state = LPExecutorStates.COMPLETE
             else:
-                self.state = LPPositionStates.CLOSING
+                self.state = LPExecutorStates.CLOSING
             return
 
         if self.active_open_order is not None:
             if not self.active_open_order.is_filled:
-                self.state = LPPositionStates.OPENING
+                self.state = LPExecutorStates.OPENING
                 return
             # Open order filled - position exists, check price
 
         # Position exists - determine state based on price location
         if self.position_address and current_price is not None:
             if current_price < self.lower_price or current_price > self.upper_price:
-                self.state = LPPositionStates.OUT_OF_RANGE
+                self.state = LPExecutorStates.OUT_OF_RANGE
             else:
-                self.state = LPPositionStates.IN_RANGE
+                self.state = LPExecutorStates.IN_RANGE
         elif self.position_address is None:
-            self.state = LPPositionStates.NOT_ACTIVE
+            self.state = LPExecutorStates.NOT_ACTIVE
 
         # Track out_of_range_since timer (matches original script logic)
-        if self.state == LPPositionStates.IN_RANGE:
+        if self.state == LPExecutorStates.IN_RANGE:
             # Price back in range - reset timer
             self.out_of_range_since = None
-        elif self.state == LPPositionStates.OUT_OF_RANGE:
+        elif self.state == LPExecutorStates.OUT_OF_RANGE:
             # Price out of bounds - start timer if not already started
             if self.out_of_range_since is None and current_time is not None:
                 self.out_of_range_since = current_time
@@ -316,7 +316,7 @@ class LPPositionState(BaseModel):
         self.position_rent_refunded = Decimal("0")
         self.active_open_order = None
         self.active_close_order = None
-        self.state = LPPositionStates.NOT_ACTIVE
+        self.state = LPExecutorStates.NOT_ACTIVE
         self.out_of_range_since = None
 ```
 
@@ -381,7 +381,7 @@ No separate JSON file needed - the existing database handles everything.
 
 ---
 
-## LPPositionExecutor Implementation
+## LPExecutor Implementation
 
 **Executor responsibility**: Single position lifecycle only (open → monitor → close)
 **Controller responsibility**: Rebalancing logic (timer, stop old executor, create new one)
@@ -389,7 +389,7 @@ No separate JSON file needed - the existing database handles everything.
 ### Key Methods
 
 ```python
-class LPPositionExecutor(ExecutorBase):
+class LPExecutor(ExecutorBase):
     """
     Executor for a single LP position lifecycle.
 
@@ -404,11 +404,11 @@ class LPPositionExecutor(ExecutorBase):
     max_retries is also passed by orchestrator.
     """
 
-    def __init__(self, strategy, config: LPPositionExecutorConfig, update_interval: float = 1.0, max_retries: int = 10):
+    def __init__(self, strategy, config: LPExecutorConfig, update_interval: float = 1.0, max_retries: int = 10):
         # Extract connector names from config for ExecutorBase
         connectors = [config.connector_name]
         super().__init__(strategy, connectors, config, update_interval)
-        self.lp_position_state = LPPositionState()
+        self.lp_position_state = LPExecutorState()
         self._current_retries = 0
         self._max_retries = max_retries
         self._setup_lp_event_forwarders()
@@ -435,24 +435,24 @@ class LPPositionExecutor(ExecutorBase):
         self.lp_position_state.update_state(current_price, current_time)
 
         match self.lp_position_state.state:
-            case LPPositionStates.NOT_ACTIVE:
+            case LPExecutorStates.NOT_ACTIVE:
                 # Create position
                 await self._create_position()
 
-            case LPPositionStates.OPENING | LPPositionStates.CLOSING:
+            case LPExecutorStates.OPENING | LPExecutorStates.CLOSING:
                 # Wait for events
                 pass
 
-            case LPPositionStates.IN_RANGE | LPPositionStates.OUT_OF_RANGE:
+            case LPExecutorStates.IN_RANGE | LPExecutorStates.OUT_OF_RANGE:
                 # Position active - just monitor (controller handles rebalance decision)
                 # Executor tracks out_of_range_since, controller reads it to decide when to rebalance
                 pass
 
-            case LPPositionStates.COMPLETE:
+            case LPExecutorStates.COMPLETE:
                 # Position closed
                 self.stop()
 
-            case LPPositionStates.RETRIES_EXCEEDED:
+            case LPExecutorStates.RETRIES_EXCEEDED:
                 # Already shutting down from failure handler
                 pass
 
@@ -471,7 +471,7 @@ class LPPositionExecutor(ExecutorBase):
             extra_params=self.config.extra_params,
         )
         self.lp_position_state.active_open_order = TrackedOrder(order_id=order_id)
-        self.lp_position_state.state = LPPositionStates.OPENING
+        self.lp_position_state.state = LPExecutorStates.OPENING
 
     async def _close_position(self):
         """
@@ -484,7 +484,7 @@ class LPPositionExecutor(ExecutorBase):
             position_address=self.lp_position_state.position_address,
         )
         self.lp_position_state.active_close_order = TrackedOrder(order_id=order_id)
-        self.lp_position_state.state = LPPositionStates.CLOSING
+        self.lp_position_state.state = LPExecutorStates.CLOSING
 
     def register_events(self):
         """Register for LP events on connector"""
@@ -606,7 +606,7 @@ class LPPositionExecutor(ExecutorBase):
                 f"LP {operation_type} failed after {self._max_retries} retries. "
                 "Blockchain may be down or severely congested."
             )
-            self.lp_position_state.state = LPPositionStates.RETRIES_EXCEEDED
+            self.lp_position_state.state = LPExecutorStates.RETRIES_EXCEEDED
             # Stop executor - controller will see RETRIES_EXCEEDED and handle appropriately
             self.close_type = CloseType.FAILED
             self._status = RunnableStatus.SHUTTING_DOWN
@@ -632,7 +632,7 @@ class LPPositionExecutor(ExecutorBase):
             self.close_type = CloseType.POSITION_HOLD
         else:
             # Close position before stopping
-            if self.lp_position_state.state in [LPPositionStates.IN_RANGE, LPPositionStates.OUT_OF_RANGE]:
+            if self.lp_position_state.state in [LPExecutorStates.IN_RANGE, LPExecutorStates.OUT_OF_RANGE]:
                 asyncio.create_task(self._close_position())
             self.close_type = CloseType.EARLY_STOP
         self._status = RunnableStatus.SHUTTING_DOWN
@@ -843,11 +843,11 @@ class LPController(ControllerBase):
         state = executor.custom_info.get("state")
 
         # Don't take action while executor is in transition states
-        if state in [LPPositionStates.OPENING.value, LPPositionStates.CLOSING.value]:
+        if state in [LPExecutorStates.OPENING.value, LPExecutorStates.CLOSING.value]:
             return actions
 
         # Handle failed executor - don't auto-retry, require manual intervention
-        if state == LPPositionStates.RETRIES_EXCEEDED.value:
+        if state == LPExecutorStates.RETRIES_EXCEEDED.value:
             self.logger().error("Executor failed after max retries. Manual intervention required.")
             return actions
 
@@ -857,7 +857,7 @@ class LPController(ControllerBase):
 
         # Rebalancing logic: executor tracks when it went out of range,
         # controller reads it and decides when to rebalance
-        if state == LPPositionStates.OUT_OF_RANGE.value:
+        if state == LPExecutorStates.OUT_OF_RANGE.value:
             if out_of_range_since is not None:
                 current_time = self.market_data_provider.time()
                 elapsed = current_time - out_of_range_since
@@ -883,11 +883,11 @@ class LPController(ControllerBase):
                     ))
 
         # Note: IN_RANGE state - timer is automatically reset by executor
-        # (out_of_range_since set to None in LPPositionState.update_state())
+        # (out_of_range_since set to None in LPExecutorState.update_state())
 
         return actions
 
-    def _create_executor_config(self) -> LPPositionExecutorConfig:
+    def _create_executor_config(self) -> LPExecutorConfig:
         """Create executor config - initial or rebalanced"""
         if self._last_executor_info:
             # Rebalancing - single-sided position
@@ -915,7 +915,7 @@ class LPController(ControllerBase):
         if self.config.strategy_type is not None:
             extra_params["strategyType"] = self.config.strategy_type
 
-        return LPPositionExecutorConfig(
+        return LPExecutorConfig(
             timestamp=self.market_data_provider.time(),
             connector_name=self.config.connector_name,
             pool_address=self.config.pool_address,
@@ -1211,10 +1211,10 @@ Note: We do NOT use these existing events:
 - `RangePositionFeeCollected = 304` - Fees are included in close_position response
 - `RangePositionClosed = 305` - We use RangePositionLiquidityRemoved for close
 
-LPPositionExecutor follows the **exact same pattern** as PositionExecutor/GridExecutor:
+LPExecutor follows the **exact same pattern** as PositionExecutor/GridExecutor:
 
 ```python
-# In LPPositionExecutor.__init__
+# In LPExecutor.__init__
 self._lp_add_forwarder = SourceInfoEventForwarder(self.process_lp_added_event)
 self._lp_remove_forwarder = SourceInfoEventForwarder(self.process_lp_removed_event)
 self._lp_failure_forwarder = SourceInfoEventForwarder(self.process_lp_failure_event)
@@ -1340,7 +1340,7 @@ These are the existing event classes in `hummingbot/core/event/events.py`.
 
 ### Registering with ExecutorOrchestrator
 
-The `LPPositionExecutor` must be registered in `executor_orchestrator.py`:
+The `LPExecutor` must be registered in `executor_orchestrator.py`:
 
 ```python
 # In ExecutorOrchestrator._executor_mapping
@@ -1348,7 +1348,7 @@ _executor_mapping = {
     "position_executor": PositionExecutor,
     "grid_executor": GridExecutor,
     # ... existing executors ...
-    "lp_position_executor": LPPositionExecutor,  # Add this
+    "lp_executor": LPExecutor,  # Add this
 }
 ```
 
@@ -1366,10 +1366,10 @@ The orchestrator will then create executors with:
 hummingbot/
 ├── strategy_v2/
 │   ├── executors/
-│   │   └── lp_position_executor/
+│   │   └── lp_executor/
 │   │       ├── __init__.py
-│   │       ├── data_types.py              # LPPositionExecutorConfig, LPPositionState
-│   │       └── lp_position_executor.py    # LPPositionExecutor implementation
+│   │       ├── data_types.py              # LPExecutorConfig, LPExecutorState
+│   │       └── lp_executor.py    # LPExecutor implementation
 │   └── controllers/
 │       └── lp_controller/                 # Alternative location
 │
@@ -1383,11 +1383,11 @@ hummingbot/
 ## Migration Path
 
 ### Phase 1: Create Data Types
-1. Create `lp_position_executor/data_types.py` with configs and state classes
+1. Create `lp_executor/data_types.py` with configs and state classes
 2. Add LP event forwarders to support LP-specific events
 
-### Phase 2: Implement LPPositionExecutor
-1. Create `lp_position_executor.py` with core state machine
+### Phase 2: Implement LPExecutor
+1. Create `lp_executor.py` with core state machine
 2. Port position open/close logic from script
 3. Implement retry logic for timeouts
 
@@ -1449,7 +1449,7 @@ hummingbot/
 
 ### Architecture
 
-**LPPositionExecutor** - Single position lifecycle:
+**LPExecutor** - Single position lifecycle:
 - Opens position on start
 - Extracts position data directly from LP events (no separate fetch needed)
 - Tracks `position_rent` (on ADD) and `position_rent_refunded` (on REMOVE)
@@ -1498,10 +1498,10 @@ Controller                          Executor
 
 ### Components
 
-- **LPPositionStates**: NOT_ACTIVE, OPENING, IN_RANGE, OUT_OF_RANGE, CLOSING, COMPLETE, RETRIES_EXCEEDED
-- **LPPositionState**: State tracking model within executor (includes `out_of_range_since`, rent fields)
-- **LPPositionExecutorConfig**: Position parameters (lower_price, upper_price, amounts)
-- **LPPositionExecutor**: Position lifecycle (~100 lines)
+- **LPExecutorStates**: NOT_ACTIVE, OPENING, IN_RANGE, OUT_OF_RANGE, CLOSING, COMPLETE, RETRIES_EXCEEDED
+- **LPExecutorState**: State tracking model within executor (includes `out_of_range_since`, rent fields)
+- **LPExecutorConfig**: Position parameters (lower_price, upper_price, amounts)
+- **LPExecutor**: Position lifecycle (~100 lines)
 - **LPControllerConfig**: Pool + policy parameters (position_width_pct, rebalance_seconds, price_limits)
 - **LPController**: Rebalancing logic (~100 lines)
 - **LP Event Types**: `RangePositionLiquidityAddedEvent`, `RangePositionLiquidityRemovedEvent`, `RangePositionUpdateFailureEvent`

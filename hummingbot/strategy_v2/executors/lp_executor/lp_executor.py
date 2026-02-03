@@ -13,16 +13,12 @@ from hummingbot.core.event.events import (
 from hummingbot.logger import HummingbotLogger
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
 from hummingbot.strategy_v2.executors.executor_base import ExecutorBase
-from hummingbot.strategy_v2.executors.lp_position_executor.data_types import (
-    LPPositionExecutorConfig,
-    LPPositionState,
-    LPPositionStates,
-)
+from hummingbot.strategy_v2.executors.lp_executor.data_types import LPExecutorConfig, LPExecutorState, LPExecutorStates
 from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executors import CloseType, TrackedOrder
 
 
-class LPPositionExecutor(ExecutorBase):
+class LPExecutor(ExecutorBase):
     """
     Executor for a single LP position lifecycle.
 
@@ -47,15 +43,15 @@ class LPPositionExecutor(ExecutorBase):
     def __init__(
         self,
         strategy: ScriptStrategyBase,
-        config: LPPositionExecutorConfig,
+        config: LPExecutorConfig,
         update_interval: float = 1.0,
         max_retries: int = 10
     ):
         # Extract connector names from config for ExecutorBase
         connectors = [config.connector_name]
         super().__init__(strategy, connectors, config, update_interval)
-        self.config: LPPositionExecutorConfig = config
-        self.lp_position_state = LPPositionState()
+        self.config: LPExecutorConfig = config
+        self.lp_position_state = LPExecutorState()
         self._current_retries = 0
         self._max_retries = max_retries
         self._setup_lp_event_forwarders()
@@ -87,24 +83,24 @@ class LPPositionExecutor(ExecutorBase):
         self.lp_position_state.update_state(current_price, current_time)
 
         match self.lp_position_state.state:
-            case LPPositionStates.NOT_ACTIVE:
+            case LPExecutorStates.NOT_ACTIVE:
                 # Create position
                 await self._create_position()
 
-            case LPPositionStates.OPENING | LPPositionStates.CLOSING:
+            case LPExecutorStates.OPENING | LPExecutorStates.CLOSING:
                 # Wait for events
                 pass
 
-            case LPPositionStates.IN_RANGE | LPPositionStates.OUT_OF_RANGE:
+            case LPExecutorStates.IN_RANGE | LPExecutorStates.OUT_OF_RANGE:
                 # Position active - just monitor (controller handles rebalance decision)
                 # Executor tracks out_of_range_since, controller reads it to decide when to rebalance
                 pass
 
-            case LPPositionStates.COMPLETE:
+            case LPExecutorStates.COMPLETE:
                 # Position closed - close_type already set by early_stop()
                 self.stop()
 
-            case LPPositionStates.RETRIES_EXCEEDED:
+            case LPExecutorStates.RETRIES_EXCEEDED:
                 # Already shutting down from failure handler
                 pass
 
@@ -140,7 +136,7 @@ class LPPositionExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} confirmed closed on-chain"
                 )
-                self.lp_position_state.state = LPPositionStates.COMPLETE
+                self.lp_position_state.state = LPExecutorStates.COMPLETE
                 self.lp_position_state.active_close_order = None
                 return
             elif "not found" in error_msg:
@@ -176,7 +172,7 @@ class LPPositionExecutor(ExecutorBase):
             extra_params=self.config.extra_params,
         )
         self.lp_position_state.active_open_order = TrackedOrder(order_id=order_id)
-        self.lp_position_state.state = LPPositionStates.OPENING
+        self.lp_position_state.state = LPExecutorStates.OPENING
 
     async def _close_position(self):
         """
@@ -198,7 +194,7 @@ class LPPositionExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} already closed - skipping close"
                 )
-                self.lp_position_state.state = LPPositionStates.COMPLETE
+                self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
         except Exception as e:
             error_msg = str(e).lower()
@@ -206,7 +202,7 @@ class LPPositionExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} confirmed closed on-chain - skipping close"
                 )
-                self.lp_position_state.state = LPPositionStates.COMPLETE
+                self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
             elif "not found" in error_msg:
                 # Position never existed - this is a bug in position tracking
@@ -215,7 +211,7 @@ class LPPositionExecutor(ExecutorBase):
                     "This indicates a bug in position tracking."
                 )
                 # Still mark as complete to avoid infinite retry loop
-                self.lp_position_state.state = LPPositionStates.COMPLETE
+                self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
             # Other errors - proceed with close attempt
 
@@ -224,7 +220,7 @@ class LPPositionExecutor(ExecutorBase):
             position_address=self.lp_position_state.position_address,
         )
         self.lp_position_state.active_close_order = TrackedOrder(order_id=order_id)
-        self.lp_position_state.state = LPPositionStates.CLOSING
+        self.lp_position_state.state = LPExecutorStates.CLOSING
 
     def register_events(self):
         """Register for LP events on connector"""
@@ -286,7 +282,7 @@ class LPPositionExecutor(ExecutorBase):
            event.order_id == self.lp_position_state.active_close_order.order_id:
             # Mark position as closed by clearing position_address
             # Note: We don't set is_filled - it's a read-only property.
-            self.lp_position_state.state = LPPositionStates.COMPLETE
+            self.lp_position_state.state = LPExecutorStates.COMPLETE
 
             # Track rent refunded on close
             self.lp_position_state.position_rent_refunded = event.position_rent_refunded or Decimal("0")
@@ -344,7 +340,7 @@ class LPPositionExecutor(ExecutorBase):
                 f"LP {operation_type} failed after {self._max_retries} retries. "
                 "Blockchain may be down or severely congested."
             )
-            self.lp_position_state.state = LPPositionStates.RETRIES_EXCEEDED
+            self.lp_position_state.state = LPExecutorStates.RETRIES_EXCEEDED
             # Stop executor - controller will see RETRIES_EXCEEDED and handle appropriately
             self.close_type = CloseType.FAILED
             self._status = RunnableStatus.SHUTTING_DOWN
@@ -371,7 +367,7 @@ class LPPositionExecutor(ExecutorBase):
 
         # Close position if not keeping it
         if not keep_position and not self.config.keep_position:
-            if self.lp_position_state.state in [LPPositionStates.IN_RANGE, LPPositionStates.OUT_OF_RANGE]:
+            if self.lp_position_state.state in [LPExecutorStates.IN_RANGE, LPExecutorStates.OUT_OF_RANGE]:
                 asyncio.create_task(self._close_position())
 
     @property

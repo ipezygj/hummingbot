@@ -8,7 +8,7 @@ from hummingbot.strategy_v2.executors.data_types import ExecutorConfigBase
 from hummingbot.strategy_v2.models.executors import TrackedOrder
 
 
-class LPPositionStates(Enum):
+class LPExecutorStates(Enum):
     """
     State machine for LP position lifecycle.
     Price direction (above/below range) is determined from custom_info, not state.
@@ -22,7 +22,7 @@ class LPPositionStates(Enum):
     RETRIES_EXCEEDED = "RETRIES_EXCEEDED"  # Failed to open/close after max retries
 
 
-class LPPositionExecutorConfig(ExecutorConfigBase):
+class LPExecutorConfig(ExecutorConfigBase):
     """
     Configuration for LP Position Executor.
 
@@ -31,7 +31,7 @@ class LPPositionExecutorConfig(ExecutorConfigBase):
     - Creates position based on config
     - Closes position when executor stops (unless keep_position=True)
     """
-    type: Literal["lp_position_executor"] = "lp_position_executor"
+    type: Literal["lp_executor"] = "lp_executor"
 
     # Pool identification
     connector_name: str  # e.g., "meteora/clmm"
@@ -65,7 +65,7 @@ class LPPositionExecutorConfig(ExecutorConfigBase):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class LPPositionState(BaseModel):
+class LPExecutorState(BaseModel):
     """Tracks a single LP position state within executor."""
     position_address: Optional[str] = None
     lower_price: Decimal = Decimal("0")
@@ -84,7 +84,7 @@ class LPPositionState(BaseModel):
     active_close_order: Optional[TrackedOrder] = None
 
     # State
-    state: LPPositionStates = LPPositionStates.NOT_ACTIVE
+    state: LPExecutorStates = LPExecutorStates.NOT_ACTIVE
 
     # Timer tracking (executor tracks when it went out of bounds)
     out_of_range_since: Optional[float] = None
@@ -106,33 +106,33 @@ class LPPositionState(BaseModel):
             current_time: Current timestamp (for tracking out_of_range_since)
         """
         # If already complete, stay complete
-        if self.state == LPPositionStates.COMPLETE:
+        if self.state == LPExecutorStates.COMPLETE:
             return
 
         # If closing order is active but position still exists, we're closing
         if self.active_close_order is not None:
-            self.state = LPPositionStates.CLOSING
+            self.state = LPExecutorStates.CLOSING
             return
 
         # If open order is active but position not yet created, we're opening
         if self.active_open_order is not None and self.position_address is None:
-            self.state = LPPositionStates.OPENING
+            self.state = LPExecutorStates.OPENING
             return
 
         # Position exists - determine state based on price location
         if self.position_address and current_price is not None:
             if current_price < self.lower_price or current_price > self.upper_price:
-                self.state = LPPositionStates.OUT_OF_RANGE
+                self.state = LPExecutorStates.OUT_OF_RANGE
             else:
-                self.state = LPPositionStates.IN_RANGE
+                self.state = LPExecutorStates.IN_RANGE
         elif self.position_address is None:
-            self.state = LPPositionStates.NOT_ACTIVE
+            self.state = LPExecutorStates.NOT_ACTIVE
 
         # Track out_of_range_since timer (matches original script logic)
-        if self.state == LPPositionStates.IN_RANGE:
+        if self.state == LPExecutorStates.IN_RANGE:
             # Price back in range - reset timer
             self.out_of_range_since = None
-        elif self.state == LPPositionStates.OUT_OF_RANGE:
+        elif self.state == LPExecutorStates.OUT_OF_RANGE:
             # Price out of bounds - start timer if not already started
             if self.out_of_range_since is None and current_time is not None:
                 self.out_of_range_since = current_time
@@ -154,5 +154,5 @@ class LPPositionState(BaseModel):
         self.position_rent_refunded = Decimal("0")
         self.active_open_order = None
         self.active_close_order = None
-        self.state = LPPositionStates.NOT_ACTIVE
+        self.state = LPExecutorStates.NOT_ACTIVE
         self.out_of_range_since = None
