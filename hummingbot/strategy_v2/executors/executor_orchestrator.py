@@ -312,6 +312,9 @@ class ExecutorOrchestrator:
         """
         markets_recorder = MarketsRecorder.get_instance()
         for controller_id, positions_list in self.positions_held.items():
+            if controller_id is None:
+                self.logger().warning(f"Skipping {len(positions_list)} position(s) with no controller_id")
+                continue
             for position in positions_list:
                 # Skip if the connector/trading pair is not in the current strategy markets
                 if (position.connector_name not in self.strategy.markets or
@@ -356,6 +359,10 @@ class ExecutorOrchestrator:
         Execute the action and handle executors based on action type.
         """
         controller_id = action.controller_id
+        if controller_id is None:
+            self.logger().error(f"Received action with controller_id=None: {action}. "
+                                "Check that the controller config has a valid 'id' field.")
+            return
         if controller_id not in self.cached_performance:
             self.active_executors[controller_id] = []
             self.positions_held[controller_id] = []
