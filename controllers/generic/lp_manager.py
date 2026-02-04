@@ -2,7 +2,7 @@ import logging
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from hummingbot.core.data_type.common import MarketDict
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
@@ -43,6 +43,14 @@ class LPControllerConfig(ControllerConfigBase):
 
     # Connector-specific params (optional)
     strategy_type: Optional[int] = Field(default=None, json_schema_extra={"is_updatable": True})
+
+    @field_validator("lower_price_limit", "upper_price_limit", mode="before")
+    @classmethod
+    def validate_price_limits(cls, v):
+        """Allow null/None values for price limits."""
+        if v is None:
+            return None
+        return Decimal(str(v))
 
     def update_markets(self, markets: MarketDict) -> MarketDict:
         """Register the LP connector with trading pair"""
