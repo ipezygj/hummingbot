@@ -449,6 +449,41 @@ class GatewayBase(ConnectorBase):
         """
         await self.update_balances()
 
+    async def _initialize_trading_pair_symbol_map(self):
+        """
+        Initialize chain/network info for gateway connectors.
+        This ensures chain is detected before _update_balances is called.
+        """
+        # Auto-detect chain and network if not provided
+        if not self._chain or not self._network:
+            chain, network, error = await self._get_gateway_instance().get_connector_chain_network(
+                self._connector_name
+            )
+            if error:
+                raise ValueError(f"Failed to get chain/network info: {error}")
+            if not self._chain:
+                self._chain = chain
+            if not self._network:
+                self._network = network
+            # Update name now that we have chain/network
+            self._name = f"{self._connector_name}_{self._chain}_{self._network}"
+
+        # Auto-detect wallet if not provided
+        if not self._wallet_address:
+            wallet_address, error = await self._get_gateway_instance().get_default_wallet(
+                self._chain
+            )
+            if error:
+                raise ValueError(f"Failed to get default wallet: {error}")
+            self._wallet_address = wallet_address
+
+    async def _update_trading_rules(self):
+        """
+        No-op for gateway connectors.
+        Gateway connectors don't have trading rules in the same way as exchange connectors.
+        """
+        pass
+
     async def cancel_all(self, timeout_seconds: float) -> List[CancellationResult]:
         """
         This is intentionally left blank, because cancellation is expensive on blockchains. It's not worth it for
