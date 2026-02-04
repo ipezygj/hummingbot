@@ -327,6 +327,21 @@ class LPController(ControllerBase):
                     line = f"| Rebalance: {elapsed}s / {self.config.rebalance_seconds}s"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
+            # Calculate and show totals from active executor
+            custom = executor.custom_info
+            base_amount = Decimal(str(custom.get("base_amount", 0)))
+            quote_amount = Decimal(str(custom.get("quote_amount", 0)))
+            base_fee = Decimal(str(custom.get("base_fee", 0)))
+            quote_fee = Decimal(str(custom.get("quote_fee", 0)))
+            price = Decimal(str(current_price)) if current_price else Decimal("0")
+
+            total_fees_quote = base_fee * price + quote_fee
+            total_value_quote = base_amount * price + quote_amount
+
+            status.append("|" + " " * box_width + "|")
+            line = f"| Fees: {float(total_fees_quote):.6f} {self._quote_token}  |  Value: {float(total_value_quote):.4f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
         # Price limits visualization (if configured)
         if self.config.lower_price_limit or self.config.upper_price_limit:
             current_price_rate = self.market_data_provider.get_rate(self.config.trading_pair)
