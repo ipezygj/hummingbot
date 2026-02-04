@@ -79,6 +79,7 @@ class LPController(ControllerBase):
 
         # Rebalance tracking
         self._last_executor_info: Optional[Dict] = None
+        self._pending_rebalance: bool = False  # True when waiting for executor to finish closing
 
         # Initialize rate sources
         self.market_data_provider.initialize_rate_sources([
@@ -93,6 +94,20 @@ class LPController(ControllerBase):
         active = [e for e in self.executors_info if e.is_active]
         return active[0] if active else None
 
+    def recently_completed_executor(self) -> Optional[ExecutorInfo]:
+        """
+        Get most recently completed executor (for rebalancing).
+        Returns the executor that just finished closing so we can get final amounts.
+        """
+        completed = [
+            e for e in self.executors_info
+            if not e.is_active and e.custom_info.get("state") == LPExecutorStates.COMPLETE.value
+        ]
+        # Return most recent by timestamp (if multiple, which shouldn't happen)
+        if completed:
+            return max(completed, key=lambda e: e.timestamp or 0)
+        return None
+
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """Decide whether to create/stop executors"""
         actions = []
@@ -100,6 +115,7 @@ class LPController(ControllerBase):
 
         # Manual kill switch - close position
         if self.config.manual_kill_switch:
+            self._pending_rebalance = False  # Cancel any pending rebalance
             if executor:
                 actions.append(StopExecutorAction(
                     controller_id=self.config.id,
@@ -108,8 +124,26 @@ class LPController(ControllerBase):
                 ))
             return actions
 
-        # No active executor - create new position
+        # No active executor - check if we should create one
         if executor is None:
+            if self._pending_rebalance:
+                # Rebalancing: get final amounts from completed executor
+                completed = self.recently_completed_executor()
+                if completed:
+                    # Preserve was_below_range from when rebalance was initiated
+                    was_below_range = self._last_executor_info.get("was_below_range", False) if self._last_executor_info else False
+                    # Use the FINAL amounts from the closed position (updated by remove event)
+                    self._last_executor_info = completed.custom_info.copy()
+                    self._last_executor_info["was_below_range"] = was_below_range
+                    self.logger().info(
+                        f"Rebalancing with final amounts - base: {self._last_executor_info.get('base_amount')}, "
+                        f"quote: {self._last_executor_info.get('quote_amount')}, "
+                        f"base_fee: {self._last_executor_info.get('base_fee')}, "
+                        f"quote_fee: {self._last_executor_info.get('quote_fee')}, "
+                        f"was_below_range: {was_below_range}"
+                    )
+                self._pending_rebalance = False
+
             actions.append(CreateExecutorAction(
                 controller_id=self.config.id,
                 executor_config=self._create_executor_config()
@@ -145,12 +179,18 @@ class LPController(ControllerBase):
                         )
                         return actions  # Keep current position, don't rebalance
 
-                    # Time to rebalance: save info for new executor, then stop current
-                    self._last_executor_info = executor.custom_info.copy()
-                    # Determine price direction from custom_info
+                    # Time to rebalance: mark pending and stop executor
+                    # We'll get the final amounts AFTER the close completes
                     lower_price = executor.custom_info.get("lower_price")
-                    self._last_executor_info["was_below_range"] = (
-                        current_price is not None and lower_price is not None and current_price < lower_price
+                    self._pending_rebalance = True
+                    # Store direction now (won't change during close)
+                    self._last_executor_info = {
+                        "was_below_range": (
+                            current_price is not None and lower_price is not None and current_price < lower_price
+                        )
+                    }
+                    self.logger().info(
+                        f"Initiating rebalance (was_below_range={self._last_executor_info['was_below_range']})"
                     )
                     actions.append(StopExecutorAction(
                         controller_id=self.config.id,
@@ -162,19 +202,37 @@ class LPController(ControllerBase):
 
     def _create_executor_config(self) -> LPExecutorConfig:
         """Create executor config - initial or rebalanced"""
-        if self._last_executor_info:
-            # Rebalancing - single-sided position
+        if self._last_executor_info and "base_amount" in self._last_executor_info:
+            # Rebalancing - single-sided position using FINAL amounts from closed position
             info = self._last_executor_info
-            if info["was_below_range"]:
-                # Price below - use base only (position will be ABOVE current price)
-                base_amt = Decimal(str(info["base_amount"])) + Decimal(str(info["base_fee"]))
+            was_below_range = info.get("was_below_range", False)
+
+            # Use the actual returned amounts (base + fees or quote + fees)
+            base_amount = Decimal(str(info.get("base_amount", 0)))
+            quote_amount = Decimal(str(info.get("quote_amount", 0)))
+            base_fee = Decimal(str(info.get("base_fee", 0)))
+            quote_fee = Decimal(str(info.get("quote_fee", 0)))
+
+            if was_below_range:
+                # Price below range - position returned mostly base
+                # Use all base (amount + fee) for new position
+                base_amt = base_amount + base_fee
                 quote_amt = Decimal("0")
+                self.logger().info(f"Rebalance: using base_amt={base_amt} (base={base_amount} + fee={base_fee})")
             else:
-                # Price above - use quote only (position will be BELOW current price)
+                # Price above range - position returned mostly quote
+                # Use all quote (amount + fee) for new position
                 base_amt = Decimal("0")
-                quote_amt = Decimal(str(info["quote_amount"])) + Decimal(str(info["quote_fee"]))
+                quote_amt = quote_amount + quote_fee
+                self.logger().info(f"Rebalance: using quote_amt={quote_amt} (quote={quote_amount} + fee={quote_fee})")
 
             self._last_executor_info = None  # Clear after use
+        elif self._last_executor_info:
+            # Pending rebalance but no final amounts yet (shouldn't happen normally)
+            self.logger().warning("Rebalance pending but no final amounts - using config defaults")
+            base_amt = self.config.base_amount
+            quote_amt = self.config.quote_amount
+            self._last_executor_info = None
         else:
             # Initial position from config
             base_amt = self.config.base_amount
