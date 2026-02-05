@@ -81,6 +81,9 @@ class LPController(ControllerBase):
         self._last_executor_info: Optional[Dict] = None
         self._pending_rebalance: bool = False  # True when waiting for executor to finish closing
 
+        # Track the executor we created (only create new one after this one terminates)
+        self._current_executor_id: Optional[str] = None
+
         # Initialize rate sources
         self.market_data_provider.initialize_rate_sources([
             ConnectorPair(
@@ -93,6 +96,25 @@ class LPController(ControllerBase):
         """Get current active executor (should be 0 or 1)"""
         active = [e for e in self.executors_info if e.is_active]
         return active[0] if active else None
+
+    def get_tracked_executor(self) -> Optional[ExecutorInfo]:
+        """Get the executor we're currently tracking (by ID)"""
+        if not self._current_executor_id:
+            return None
+        for e in self.executors_info:
+            if e.id == self._current_executor_id:
+                return e
+        return None
+
+    def is_tracked_executor_terminated(self) -> bool:
+        """Check if the executor we created has terminated"""
+        from hummingbot.strategy_v2.models.base import RunnableStatus
+        if not self._current_executor_id:
+            return True  # No executor tracked, OK to create
+        executor = self.get_tracked_executor()
+        if executor is None:
+            return True  # Executor not found (maybe cleaned up), OK to create
+        return executor.status == RunnableStatus.TERMINATED
 
     def recently_completed_executor(self) -> Optional[ExecutorInfo]:
         """
@@ -113,6 +135,11 @@ class LPController(ControllerBase):
         actions = []
         executor = self.active_executor()
 
+        # Track the active executor's ID if we don't have one yet
+        if executor and not self._current_executor_id:
+            self._current_executor_id = executor.id
+            self.logger().info(f"Tracking executor: {executor.id}")
+
         # Manual kill switch - close position
         if self.config.manual_kill_switch:
             self._pending_rebalance = False  # Cancel any pending rebalance
@@ -126,6 +153,18 @@ class LPController(ControllerBase):
 
         # No active executor - check if we should create one
         if executor is None:
+            # Don't create new executor until the previous one has terminated
+            if not self.is_tracked_executor_terminated():
+                tracked = self.get_tracked_executor()
+                self.logger().debug(
+                    f"Waiting for executor {self._current_executor_id} to terminate "
+                    f"(status: {tracked.status if tracked else 'not found'})"
+                )
+                return actions
+
+            # Previous executor terminated, clear tracking so we can track the new one
+            self._current_executor_id = None
+
             if self._pending_rebalance:
                 # Rebalancing: get final amounts from completed executor
                 completed = self.recently_completed_executor()
@@ -226,6 +265,20 @@ class LPController(ControllerBase):
                 quote_amt = quote_amount + quote_fee
                 self.logger().info(f"Rebalance: using quote_amt={quote_amt} (quote={quote_amount} + fee={quote_fee})")
 
+            # Safety check: if amounts are too small, fall back to config amounts
+            # This can happen if close timed out but succeeded, and we didn't capture returned amounts
+            min_value_threshold = Decimal("0.01")  # Minimum value in quote to consider valid
+            current_price = self.market_data_provider.get_rate(self.config.trading_pair)
+            rebalance_value = base_amt * current_price + quote_amt if current_price else quote_amt
+
+            if rebalance_value < min_value_threshold:
+                self.logger().warning(
+                    f"Rebalance amounts too small (value={rebalance_value}), using config defaults instead. "
+                    f"This may indicate close tx succeeded but amounts weren't captured."
+                )
+                base_amt = self.config.base_amount
+                quote_amt = self.config.quote_amount
+
             self._last_executor_info = None  # Clear after use
         elif self._last_executor_info:
             # Pending rebalance but no final amounts yet (shouldn't happen normally)
@@ -237,6 +290,7 @@ class LPController(ControllerBase):
             # Initial position from config
             base_amt = self.config.base_amount
             quote_amt = self.config.quote_amount
+            self.logger().info(f"Creating initial position with base_amt={base_amt}, quote_amt={quote_amt}")
 
         # Calculate price bounds from current price, width, and position type
         lower_price, upper_price = self._calculate_price_bounds(base_amt, quote_amt)
@@ -278,11 +332,13 @@ class LPController(ControllerBase):
         """
         Calculate position bounds from current price and width %.
 
+        Note: These bounds are approximate - the executor will fetch actual pool price
+        and recalculate valid bounds before creating the position.
+
         For double-sided positions (both base and quote): split width evenly
         For base-only positions: full width ABOVE price (sell base for quote)
         For quote-only positions: full width BELOW price (buy base with quote)
         """
-        # Use RateOracle for price since LP connectors don't have get_price_by_type
         current_price = self.market_data_provider.get_rate(self.config.trading_pair)
         total_width = self.config.position_width_pct / Decimal("100")
 
