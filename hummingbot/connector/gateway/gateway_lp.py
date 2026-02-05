@@ -607,6 +607,7 @@ class GatewayLp(GatewaySwap):
             raise
         except Exception as e:
             self._handle_operation_failure(order_id, trading_pair, "opening CLMM position", e)
+            raise  # Re-raise so executor can catch and retry if needed
 
     async def _amm_add_liquidity(
         self,
@@ -782,6 +783,7 @@ class GatewayLp(GatewaySwap):
             raise
         except Exception as e:
             self._handle_operation_failure(order_id, trading_pair, "closing CLMM position", e)
+            raise  # Re-raise so executor can catch and retry if needed
 
     async def _clmm_remove_liquidity(
         self,
