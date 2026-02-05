@@ -682,66 +682,70 @@ class PMMV1(ControllerBase):
         target_pct = self.config.target_base_pct
         buy_skew = self.processed_data.get('buy_skew', Decimal('1'))
         sell_skew = self.processed_data.get('sell_skew', Decimal('1'))
-
-        # Widths
-        outer_width = 92
-        inner_width = outer_width - 4
-        half_width = inner_width // 2 - 1
-        bar_width = inner_width - 15
-
-        # Header
-        status.append("=" * (inner_width + 2) + "=")
-        header = f" PMM V1 | {self.config.connector_name}:{self.config.trading_pair} "
-        status.append(f"|{header:^{inner_width}}|")
-        status.append("=" * (inner_width + 2) + "=")
-
-        # Position and Settings sections
-        status.append(f"| {'INVENTORY':<{half_width - 1}}| {'SETTINGS':<{half_width - 1}}|")
-        status.append("-" * (inner_width + 2) + "-")
-
-        position_info = [
-            f"Current: {base_pct:.2%}",
-            f"Target: {target_pct:.2%}",
-            f"Buy Skew: {buy_skew:.2f}x",
-            f"Sell Skew: {sell_skew:.2f}x",
-        ]
-
-        settings_info = [
-            f"Spreads B: {self.config.buy_spreads}",
-            f"Spreads S: {self.config.sell_spreads}",
-            f"Order Amount: {self.config.order_amount} (base)",
-            f"Refresh: {self.config.order_refresh_time}s",
-        ]
-
-        for pos_line, set_line in zip_longest(position_info, settings_info, fillvalue=""):
-            status.append(f"| {pos_line:<{half_width - 1}}| {set_line:<{half_width - 1}}|")
-
-        # Price bands section
-        status.append("-" * (inner_width + 2) + "-")
         ref_price = self.processed_data.get('reference_price', Decimal('0'))
         ceiling = self.processed_data.get('price_ceiling')
         floor = self.processed_data.get('price_floor')
 
+        active_buy = sum(1 for e in self.executors_info
+                         if e.is_active and e.custom_info.get("level_id", "").startswith("buy"))
+        active_sell = sum(1 for e in self.executors_info
+                          if e.is_active and e.custom_info.get("level_id", "").startswith("sell"))
+
+        # Layout
+        w = 89  # total width including outer pipes
+        hw = (w - 3) // 2  # half width for two-column rows (minus 3 for "| " + "|" + " |")
+
+        def sep(char="-"):
+            return char * w
+
+        def row2(left, right):
+            return f"| {left:<{hw}}| {right:<{hw}}|"
+
+        def row1(content):
+            return f"| {content:<{w - 4}} |"
+
+        # Header
+        status.append(sep("="))
+        header = f"PMM V1 | {self.config.connector_name}:{self.config.trading_pair}"
+        status.append(f"|{header:^{w - 2}}|")
+        status.append(sep("="))
+
+        # Inventory & Settings
+        status.append(row2("INVENTORY", "SETTINGS"))
+        status.append(sep())
+        inv = [
+            f"Base %: {base_pct:.2%} (target {target_pct:.2%})",
+            f"Buy Skew: {buy_skew:.2f}x | Sell Skew: {sell_skew:.2f}x",
+        ]
+        settings = [
+            f"Order Amount: {self.config.order_amount} base",
+            f"Spreads B: {self.config.buy_spreads} S: {self.config.sell_spreads}",
+        ]
+        for left, right in zip_longest(inv, settings, fillvalue=""):
+            status.append(row2(left, right))
+
+        # Market & Price Bands
+        status.append(sep())
+        status.append(row2("MARKET", "PRICE BANDS"))
+        status.append(sep())
         ceiling_str = f"{ceiling:.8g}" if ceiling else "None"
         floor_str = f"{floor:.8g}" if floor else "None"
+        market = [
+            f"Ref Price: {ref_price:.8g}",
+            f"Active: Buy={active_buy} Sell={active_sell}",
+        ]
+        bands = [
+            f"Ceiling: {ceiling_str}",
+            f"Floor: {floor_str}",
+        ]
+        for left, right in zip_longest(market, bands, fillvalue=""):
+            status.append(row2(left, right))
 
-        band_line = f"| Ref: {ref_price:.8g}  Ceil: {ceiling_str}  Floor: {floor_str}"
-        status.append(f"{band_line:<{inner_width + 2}}|")
-
-        # Executor status
-        status.append("-" * (inner_width + 2) + "-")
-        active_buy = sum(1 for e in self.executors_info
-                        if e.is_active and self.get_trade_type_from_level_id(e.custom_info.get("level_id", "")) == TradeType.BUY)
-        active_sell = sum(1 for e in self.executors_info
-                         if e.is_active and self.get_trade_type_from_level_id(e.custom_info.get("level_id", "")) == TradeType.SELL)
-
-        status.append(f"| Active Executors: Buy={active_buy} Sell={active_sell} Total={len(self.executors_info)}{' ' * 30}|")
-
-        # Position bar visualization
-        status.append("-" * (inner_width + 2) + "-")
+        # Inventory bar
+        status.append(sep())
+        bar_width = w - 17  # account for "| Inventory: [" + "] |"
         filled = int(float(base_pct) * bar_width)
         target_pos = int(float(target_pct) * bar_width)
-
         bar = ""
         for i in range(bar_width):
             if i == filled:
@@ -752,8 +756,7 @@ class PMMV1(ControllerBase):
                 bar += "#"
             else:
                 bar += "."
-
         status.append(f"| Inventory: [{bar}] |")
-        status.append("=" * (inner_width + 2) + "=")
+        status.append(sep("="))
 
         return status
