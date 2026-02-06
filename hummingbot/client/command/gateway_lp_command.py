@@ -764,15 +764,12 @@ class GatewayLPCommand:
                     pending_msg_delay=5.0
                 )
 
-                if result["completed"] and result["success"]:
-                    self.notify("\n✓ Liquidity added successfully!")
+                if GatewayCommandUtils.handle_transaction_result(
+                    self, result,
+                    success_msg="Liquidity added successfully!",
+                    failure_msg="Failed to add liquidity. Please try again."
+                ):
                     self.notify(f"Use 'gateway lp {connector} position-info' to view your position")
-                elif result.get("failed") or (result["completed"] and not result["success"]):
-                    self.notify("\n✗ Failed to add liquidity. Please try again.")
-                    return
-                elif result.get("timeout"):
-                    self.notify("\n⚠️  Transaction timed out. Check your wallet for status.")
-                    return
 
             finally:
                 # Always exit interactive mode since we always enter it
@@ -1031,18 +1028,18 @@ class GatewayLPCommand:
                         pending_msg_delay=5.0
                     )
 
-                    if result["completed"] and result["success"]:
-                        if close_position:
-                            self.notify("\n✓ Position closed successfully!")
-                        else:
-                            self.notify(f"\n✓ {percentage}% liquidity removed successfully!")
-                            self.notify(f"Use 'gateway lp {connector} position-info' to view remaining position")
-                    elif result.get("failed") or (result["completed"] and not result["success"]):
-                        self.notify("\n✗ Failed to remove liquidity. Please try again.")
-                        return
-                    elif result.get("timeout"):
-                        self.notify("\n⚠️  Transaction timed out. Check your wallet for status.")
-                        return
+                    if close_position:
+                        GatewayCommandUtils.handle_transaction_result(
+                            self, result,
+                            success_msg="Position closed successfully!",
+                            failure_msg="Failed to close position. Please try again."
+                        )
+                    elif GatewayCommandUtils.handle_transaction_result(
+                        self, result,
+                        success_msg=f"{percentage}% liquidity removed successfully!",
+                        failure_msg="Failed to remove liquidity. Please try again."
+                    ):
+                        self.notify(f"Use 'gateway lp {connector} position-info' to view remaining position")
 
                 finally:
                     await GatewayCommandUtils.exit_interactive_mode(self)
