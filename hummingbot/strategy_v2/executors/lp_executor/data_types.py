@@ -19,7 +19,6 @@ class LPExecutorStates(Enum):
     OUT_OF_RANGE = "OUT_OF_RANGE"          # Position active, price outside bounds
     CLOSING = "CLOSING"                    # remove_liquidity submitted, waiting
     COMPLETE = "COMPLETE"                  # Position closed permanently
-    RETRIES_EXCEEDED = "RETRIES_EXCEEDED"  # Failed to open/close after max retries
 
 
 class LPExecutorConfig(ExecutorConfigBase):
