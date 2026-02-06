@@ -767,6 +767,12 @@ class GatewayLPCommand:
                 if result["completed"] and result["success"]:
                     self.notify("\n✓ Liquidity added successfully!")
                     self.notify(f"Use 'gateway lp {connector} position-info' to view your position")
+                elif result.get("failed") or (result["completed"] and not result["success"]):
+                    self.notify("\n✗ Failed to add liquidity. Please try again.")
+                    return
+                elif result.get("timeout"):
+                    self.notify("\n⚠️  Transaction timed out. Check your wallet for status.")
+                    return
 
             finally:
                 # Always exit interactive mode since we always enter it
@@ -1031,6 +1037,12 @@ class GatewayLPCommand:
                         else:
                             self.notify(f"\n✓ {percentage}% liquidity removed successfully!")
                             self.notify(f"Use 'gateway lp {connector} position-info' to view remaining position")
+                    elif result.get("failed") or (result["completed"] and not result["success"]):
+                        self.notify("\n✗ Failed to remove liquidity. Please try again.")
+                        return
+                    elif result.get("timeout"):
+                        self.notify("\n⚠️  Transaction timed out. Check your wallet for status.")
+                        return
 
                 finally:
                     await GatewayCommandUtils.exit_interactive_mode(self)
