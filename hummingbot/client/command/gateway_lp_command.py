@@ -551,13 +551,16 @@ class GatewayLPCommand:
                     prompt=f"Amount of {quote_token} (optional): "
                 )
 
-                # Parse amounts
+                # Parse amounts - track whether user explicitly provided each amount
                 base_amount = None
                 quote_amount = None
+                base_provided = False
+                quote_provided = False
 
                 if base_amount_str:
                     try:
                         base_amount = float(base_amount_str)
+                        base_provided = True
                     except ValueError:
                         self.notify("Error: Invalid base token amount")
                         return
@@ -565,6 +568,7 @@ class GatewayLPCommand:
                 if quote_amount_str:
                     try:
                         quote_amount = float(quote_amount_str)
+                        quote_provided = True
                     except ValueError:
                         self.notify("Error: Invalid quote token amount")
                         return
@@ -596,9 +600,12 @@ class GatewayLPCommand:
                         slippage_pct=slippage_pct
                     )
 
-                    # Update amounts based on quote
-                    base_amount = quote_result.get("baseTokenAmount", base_amount)
-                    quote_amount = quote_result.get("quoteTokenAmount", quote_amount)
+                    # Only update amounts that weren't explicitly provided by user
+                    # (respects user entering 0 for single-sided positions)
+                    if not base_provided:
+                        base_amount = quote_result.get("baseTokenAmount", base_amount)
+                    if not quote_provided:
+                        quote_amount = quote_result.get("quoteTokenAmount", quote_amount)
 
                     # Show if position is base or quote limited
                     if quote_result.get("baseLimited"):
@@ -608,12 +615,12 @@ class GatewayLPCommand:
 
                 else:
                     # For AMM, need both amounts for quote
-                    if not base_amount or not quote_amount:
+                    if not base_provided or not quote_provided:
                         # If only one amount provided, calculate the other based on pool ratio
                         pool_ratio = pool_info.base_token_amount / pool_info.quote_token_amount
-                        if base_amount and not quote_amount:
+                        if base_provided and not quote_provided:
                             quote_amount = base_amount / pool_ratio
-                        elif quote_amount and not base_amount:
+                        elif quote_provided and not base_provided:
                             base_amount = quote_amount * pool_ratio
 
                     # Get quote for AMM
@@ -626,9 +633,11 @@ class GatewayLPCommand:
                         slippage_pct=slippage_pct
                     )
 
-                    # Update amounts based on quote
-                    base_amount = quote_result.get("baseTokenAmount", base_amount)
-                    quote_amount = quote_result.get("quoteTokenAmount", quote_amount)
+                    # Only update amounts that weren't explicitly provided by user
+                    if not base_provided:
+                        base_amount = quote_result.get("baseTokenAmount", base_amount)
+                    if not quote_provided:
+                        quote_amount = quote_result.get("quoteTokenAmount", quote_amount)
 
                     # Show if position is base or quote limited
                     if quote_result.get("baseLimited"):
