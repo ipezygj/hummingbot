@@ -177,8 +177,6 @@ class LPController(ControllerBase):
                     self.logger().info(
                         f"Rebalancing with final amounts - base: {self._last_executor_info.get('base_amount')}, "
                         f"quote: {self._last_executor_info.get('quote_amount')}, "
-                        f"base_fee: {self._last_executor_info.get('base_fee')}, "
-                        f"quote_fee: {self._last_executor_info.get('quote_fee')}, "
                         f"was_below_range: {was_below_range}"
                     )
                 self._pending_rebalance = False
@@ -194,11 +192,6 @@ class LPController(ControllerBase):
 
         # Don't take action while executor is in transition states
         if state in [LPExecutorStates.OPENING.value, LPExecutorStates.CLOSING.value]:
-            return actions
-
-        # Handle failed executor - don't auto-retry, require manual intervention
-        if state == LPExecutorStates.RETRIES_EXCEEDED.value:
-            self.logger().error("Executor failed after max retries. Manual intervention required.")
             return actions
 
         # Check for rebalancing
@@ -241,56 +234,24 @@ class LPController(ControllerBase):
 
     def _create_executor_config(self) -> LPExecutorConfig:
         """Create executor config - initial or rebalanced"""
-        if self._last_executor_info and "base_amount" in self._last_executor_info:
-            # Rebalancing - single-sided position using FINAL amounts from closed position
+        if self._last_executor_info:
+            # Rebalancing - single-sided position using amounts from closed position
             info = self._last_executor_info
             was_below_range = info.get("was_below_range", False)
 
-            # Use the actual returned amounts (base + fees or quote + fees)
-            base_amount = Decimal(str(info.get("base_amount", 0)))
-            quote_amount = Decimal(str(info.get("quote_amount", 0)))
-            base_fee = Decimal(str(info.get("base_fee", 0)))
-            quote_fee = Decimal(str(info.get("quote_fee", 0)))
-
             if was_below_range:
-                # Price below range - position returned mostly base
-                # Use all base (amount + fee) for new position
-                base_amt = base_amount + base_fee
+                base_amt = Decimal(str(info.get("base_amount", 0)))
                 quote_amt = Decimal("0")
-                self.logger().info(f"Rebalance: using base_amt={base_amt} (base={base_amount} + fee={base_fee})")
             else:
-                # Price above range - position returned mostly quote
-                # Use all quote (amount + fee) for new position
                 base_amt = Decimal("0")
-                quote_amt = quote_amount + quote_fee
-                self.logger().info(f"Rebalance: using quote_amt={quote_amt} (quote={quote_amount} + fee={quote_fee})")
+                quote_amt = Decimal(str(info.get("quote_amount", 0)))
 
-            # Safety check: if amounts are too small, fall back to config amounts
-            # This can happen if close timed out but succeeded, and we didn't capture returned amounts
-            min_value_threshold = Decimal("0.01")  # Minimum value in quote to consider valid
-            current_price = self.market_data_provider.get_rate(self.config.trading_pair)
-            rebalance_value = base_amt * current_price + quote_amt if current_price else quote_amt
-
-            if rebalance_value < min_value_threshold:
-                self.logger().warning(
-                    f"Rebalance amounts too small (value={rebalance_value}), using config defaults instead. "
-                    f"This may indicate close tx succeeded but amounts weren't captured."
-                )
-                base_amt = self.config.base_amount
-                quote_amt = self.config.quote_amount
-
-            self._last_executor_info = None  # Clear after use
-        elif self._last_executor_info:
-            # Pending rebalance but no final amounts yet (shouldn't happen normally)
-            self.logger().warning("Rebalance pending but no final amounts - using config defaults")
-            base_amt = self.config.base_amount
-            quote_amt = self.config.quote_amount
+            self.logger().info(f"Rebalance: base={base_amt}, quote={quote_amt}")
             self._last_executor_info = None
         else:
             # Initial position from config
             base_amt = self.config.base_amount
             quote_amt = self.config.quote_amount
-            self.logger().info(f"Creating initial position with base_amt={base_amt}, quote_amt={quote_amt}")
 
         # Calculate price bounds from current price, width, and position type
         lower_price, upper_price = self._calculate_price_bounds(base_amt, quote_amt)
@@ -449,16 +410,10 @@ class LPController(ControllerBase):
                     line = f"| Rebalance: {elapsed}s / {self.config.rebalance_seconds}s"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
-            # Calculate and show totals from active executor
+            # Show totals from active executor
             custom = executor.custom_info
-            base_amount = Decimal(str(custom.get("base_amount", 0)))
-            quote_amount = Decimal(str(custom.get("quote_amount", 0)))
-            base_fee = Decimal(str(custom.get("base_fee", 0)))
-            quote_fee = Decimal(str(custom.get("quote_fee", 0)))
-            price = Decimal(str(current_price)) if current_price else Decimal("0")
-
-            total_fees_quote = base_fee * price + quote_fee
-            total_value_quote = base_amount * price + quote_amount
+            total_fees_quote = Decimal(str(custom.get("fees_earned_quote", 0)))
+            total_value_quote = Decimal(str(custom.get("total_value_quote", 0)))
 
             status.append("|" + " " * box_width + "|")
             line = f"| Fees: {float(total_fees_quote):.6f} {self._quote_token}  |  Value: {float(total_value_quote):.4f} {self._quote_token}"
