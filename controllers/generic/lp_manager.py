@@ -195,15 +195,13 @@ class LPController(ControllerBase):
             return actions
 
         # Check for rebalancing
-        out_of_range_since = executor.custom_info.get("out_of_range_since")
+        out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
         current_price = executor.custom_info.get("current_price")
 
         # Rebalancing logic
         if state == LPExecutorStates.OUT_OF_RANGE.value:
-            if out_of_range_since is not None:
-                current_time = self.market_data_provider.time()
-                elapsed = current_time - out_of_range_since
-                if elapsed >= self.config.rebalance_seconds:
+            if out_of_range_seconds is not None:
+                if out_of_range_seconds >= self.config.rebalance_seconds:
                     # Check if price is within limits before rebalancing
                     if not self._is_price_within_limits(current_price):
                         self.logger().info(
@@ -271,11 +269,11 @@ class LPController(ControllerBase):
 
         return LPExecutorConfig(
             timestamp=self.market_data_provider.time(),
-            connector_name=self.config.connector_name,
+            market=ConnectorPair(
+                connector_name=self.config.connector_name,
+                trading_pair=self.config.trading_pair,
+            ),
             pool_address=self.config.pool_address,
-            trading_pair=self.config.trading_pair,
-            base_token=self._base_token,
-            quote_token=self._quote_token,
             lower_price=lower_price,
             upper_price=upper_price,
             base_amount=base_amt,
@@ -293,8 +291,7 @@ class LPController(ControllerBase):
         """
         Calculate position bounds from current price and width %.
 
-        Note: These bounds are approximate - the executor will fetch actual pool price
-        and recalculate valid bounds before creating the position.
+        The executor uses these bounds directly when creating the position.
 
         For double-sided positions (both base and quote): split width evenly
         For base-only positions: full width ABOVE price (sell base for quote)
@@ -403,11 +400,9 @@ class LPController(ControllerBase):
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
                 # Show rebalance timer if out of range
-                out_of_range_since = executor.custom_info.get("out_of_range_since")
-                if out_of_range_since is not None:
-                    current_time = self.market_data_provider.time()
-                    elapsed = int(current_time - out_of_range_since)
-                    line = f"| Rebalance: {elapsed}s / {self.config.rebalance_seconds}s"
+                out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
+                if out_of_range_seconds is not None:
+                    line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
             # Show totals from active executor
