@@ -129,9 +129,9 @@ CANCEL_RETRY_INTERVAL = 5  # Seconds between retries
 # =============================================================================
 # Transaction Verification Retry Configuration
 # =============================================================================
-VERIFY_TRANSACTION_MAX_RETRY = 3
+VERIFY_TRANSACTION_MAX_RETRY = 5
 VERIFY_TRANSACTION_RETRY_INTERVAL = 5  # Seconds between retries
-AUTOFILL_TRANSACTION_MAX_RETRY = 3
+AUTOFILL_TRANSACTION_MAX_RETRY = 5
 
 # =============================================================================
 # Polling & Refresh Intervals (seconds)
