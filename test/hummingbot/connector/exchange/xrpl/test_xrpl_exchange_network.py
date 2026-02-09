@@ -296,9 +296,9 @@ class TestXRPLExchangeNetwork(XRPLExchangeTestBase, IsolatedAsyncioTestCase):
                 return tx_resp
 
         self.connector._query_xrpl = AsyncMock(side_effect=dispatch)
-        self.connector._sleep = AsyncMock()
 
-        result = await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
 
         self.assertEqual(result.result["validated"], True)
 
@@ -314,10 +314,10 @@ class TestXRPLExchangeNetwork(XRPLExchangeTestBase, IsolatedAsyncioTestCase):
         )
 
         self.connector._query_xrpl = AsyncMock(return_value=ledger_resp)
-        self.connector._sleep = AsyncMock()
 
-        with self.assertRaises(XRPLReliableSubmissionException):
-            await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(XRPLReliableSubmissionException):
+                await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
 
     async def test_wait_for_final_outcome_tx_not_found_then_found(self):
         """Keeps polling when txnNotFound, then succeeds on validation."""
@@ -351,9 +351,9 @@ class TestXRPLExchangeNetwork(XRPLExchangeTestBase, IsolatedAsyncioTestCase):
             return resp
 
         self.connector._query_xrpl = AsyncMock(side_effect=dispatch)
-        self.connector._sleep = AsyncMock()
 
-        result = await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
         self.assertTrue(result.result["validated"])
 
     async def test_wait_for_final_outcome_validated_failure(self):
@@ -382,10 +382,10 @@ class TestXRPLExchangeNetwork(XRPLExchangeTestBase, IsolatedAsyncioTestCase):
                 return tx_resp
 
         self.connector._query_xrpl = AsyncMock(side_effect=dispatch)
-        self.connector._sleep = AsyncMock()
 
-        with self.assertRaises(XRPLReliableSubmissionException):
-            await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(XRPLReliableSubmissionException):
+                await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=5)
 
     async def test_wait_for_final_outcome_timeout(self):
         """Raises TimeoutError when max attempts reached."""
@@ -413,10 +413,10 @@ class TestXRPLExchangeNetwork(XRPLExchangeTestBase, IsolatedAsyncioTestCase):
                 return not_found_resp
 
         self.connector._query_xrpl = AsyncMock(side_effect=dispatch)
-        self.connector._sleep = AsyncMock()
 
-        with self.assertRaises(TimeoutError):
-            await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=2)
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(TimeoutError):
+                await self.connector.wait_for_final_transaction_outcome(mock_tx, "tesSUCCESS", max_attempts=2)
 
     # ------------------------------------------------------------------ #
     # get_currencies_from_trading_pair

@@ -219,9 +219,10 @@ class TestXRPLExchangeTradingRules(XRPLExchangeTestBase, IsolatedAsyncioTestCase
 
         self._mock_query_xrpl(side_effect=_dispatch)
 
-        with self.assertRaises(ValueError) as ctx:
-            await self.connector._make_trading_rules_request()
-        self.assertIn("not found in ledger:", str(ctx.exception))
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(ValueError) as ctx:
+                await self.connector._make_trading_rules_request()
+            self.assertIn("not found in ledger:", str(ctx.exception))
 
     async def test_make_trading_rules_request_retries_on_transient_failure(self):
         """New: retry logic retries up to 3 times with backoff."""
@@ -265,9 +266,10 @@ class TestXRPLExchangeTradingRules(XRPLExchangeTestBase, IsolatedAsyncioTestCase
         self.connector._trading_pairs = None
         self._mock_query_xrpl()
 
-        with self.assertRaises(ValueError) as ctx:
-            await self.connector._make_trading_rules_request()
-        self.assertIn("Trading pairs list cannot be None", str(ctx.exception))
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            with self.assertRaises(ValueError) as ctx:
+                await self.connector._make_trading_rules_request()
+            self.assertIn("Trading pairs list cannot be None", str(ctx.exception))
 
     # ------------------------------------------------------------------ #
     # _update_trading_rules

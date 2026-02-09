@@ -521,7 +521,8 @@ class TestStartNetwork(XRPLExchangeTestBase, unittest.IsolatedAsyncioTestCase):
         mock_super = MagicMock()
         mock_super.return_value.start_network = AsyncMock()
 
-        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.super", mock_super):
+        with patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.asyncio.sleep", new_callable=AsyncMock), \
+             patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.super", mock_super):
             await self.connector.start_network()
 
         mock_node_pool.start.assert_awaited_once()
