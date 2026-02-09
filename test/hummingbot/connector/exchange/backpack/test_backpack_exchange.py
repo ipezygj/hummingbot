@@ -322,7 +322,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     ) -> str:
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        response = {"code": "INVALID_CLIENT_REQUEST", "message": "Order not found"}
+        response = {"code": "RESOURCE_NOT_FOUND", "message": "Not Found"}
         mock_api.delete(regex_url, status=400, body=json.dumps(response), callback=callback)
         return url
 
@@ -413,7 +413,7 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
     ) -> List[str]:
         url = web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
-        response = {"code": "INVALID_ORDER", "message": "Order does not exist"}
+        response = {"code": "RESOURCE_NOT_FOUND", "message": "Not Found"}
         mock_api.get(regex_url, body=json.dumps(response), status=400, callback=callback)
         return [url]
 

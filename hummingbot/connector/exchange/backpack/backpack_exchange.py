@@ -125,7 +125,7 @@ class BackpackExchange(ExchangePyBase):
         """
         new_order_id = get_new_numeric_client_order_id(nonce_creator=self._nonce_creator,
                                                        max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN)
-        numeric_order_id = str(int(f"{CONSTANTS.HBOT_ORDER_ID_PREFIX}{new_order_id}"))
+        numeric_order_id = str(new_order_id)
 
         safe_ensure_future(
             self._create_order(
@@ -146,7 +146,7 @@ class BackpackExchange(ExchangePyBase):
         """
         new_order_id = get_new_numeric_client_order_id(nonce_creator=self._nonce_creator,
                                                        max_id_bit_count=CONSTANTS.MAX_ORDER_ID_LEN)
-        numeric_order_id = str(int(f"{CONSTANTS.HBOT_ORDER_ID_PREFIX}{new_order_id}"))
+        numeric_order_id = str(new_order_id)
         safe_ensure_future(
             self._create_order(
                 trade_type=TradeType.SELL,
