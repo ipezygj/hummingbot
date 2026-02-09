@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from xrpl.asyncio.clients import AsyncWebsocketClient
 
-from hummingbot.connector.exchange.xrpl.xrpl_utils import RateLimiter, XRPLConnection, XRPLNodePool
+from hummingbot.connector.exchange.xrpl.xrpl_utils import RateLimiter, XRPLConnection, XRPLConnectionError, XRPLNodePool
 
 
 class TestRateLimiter(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestXRPLConnection(unittest.TestCase):
         conn = XRPLConnection(url="wss://test.com")
         self.assertEqual(conn.url, "wss://test.com")
         self.assertIsNone(conn.client)
-        self.assertFalse(conn.is_healthy)
+        self.assertTrue(conn.is_healthy)  # Default is True - connection is assumed healthy until proven otherwise
         self.assertEqual(conn.request_count, 0)
         self.assertEqual(conn.error_count, 0)
         self.assertEqual(conn.avg_latency, 0.0)
@@ -153,11 +153,11 @@ class TestXRPLNodePoolAsync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pool.total_connection_count, 2)
 
     async def test_get_client_not_running(self):
-        """Test get_client raises when pool not running."""
+        """Test get_client raises XRPLConnectionError when no healthy connections available."""
         pool = XRPLNodePool(node_urls=["wss://test.com"])
         pool._running = False
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(XRPLConnectionError):
             await pool.get_client()
 
     async def test_mark_bad_node(self):

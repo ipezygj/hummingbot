@@ -1,21 +1,21 @@
 """
 Unit tests for XRPLWorkerPoolManager.
+
+Tests the new pool-based architecture:
+- RequestPriority constants
+- Pool factory methods (lazy initialization)
+- Lifecycle management (start/stop)
+- Pipeline integration
 """
-import asyncio
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from hummingbot.connector.exchange.xrpl.xrpl_utils import XRPLNodePool
-from hummingbot.connector.exchange.xrpl.xrpl_worker_manager import (
-    RequestPriority,
-    XRPLRequest,
-    XRPLRequestType,
-    XRPLWorkerPoolManager,
-)
+from hummingbot.connector.exchange.xrpl.xrpl_worker_manager import RequestPriority, XRPLWorkerPoolManager
 
 
 class TestRequestPriority(unittest.TestCase):
-    """Tests for RequestPriority enum."""
+    """Tests for RequestPriority constants."""
 
     def test_priority_ordering(self):
         """Test priority values are correctly ordered."""
@@ -31,131 +31,252 @@ class TestRequestPriority(unittest.TestCase):
         self.assertEqual(RequestPriority.CRITICAL, 4)
 
 
-class TestXRPLRequestType(unittest.TestCase):
-    """Tests for XRPLRequestType constants."""
-
-    def test_request_types_exist(self):
-        """Test all request types are defined."""
-        self.assertEqual(XRPLRequestType.SUBMIT_TX, "submit_tx")
-        self.assertEqual(XRPLRequestType.VERIFY_TX, "verify_tx")
-        self.assertEqual(XRPLRequestType.QUERY, "query")
-        self.assertEqual(XRPLRequestType.CANCEL_TX, "cancel_tx")
-
-
-class TestXRPLRequest(unittest.TestCase):
-    """Tests for XRPLRequest dataclass."""
-
-    def test_request_creation(self):
-        """Test XRPLRequest can be created."""
-        future = asyncio.get_event_loop().create_future()
-        request = XRPLRequest(
-            priority=-RequestPriority.HIGH,  # Negative for min-heap
-            request_id="test-123",
-            request_type=XRPLRequestType.QUERY,
-            payload={"data": "test"},
-            future=future,
-            created_at=1000.0,
-            timeout=30.0,
-            retry_count=0,
-            max_retries=3,
-        )
-
-        self.assertEqual(request.request_id, "test-123")
-        self.assertEqual(request.request_type, XRPLRequestType.QUERY)
-        self.assertEqual(request.payload, {"data": "test"})
-
-    def test_request_ordering(self):
-        """Test requests are ordered by priority (lower value = higher priority)."""
-        future1 = asyncio.get_event_loop().create_future()
-        future2 = asyncio.get_event_loop().create_future()
-
-        high_priority = XRPLRequest(
-            priority=-RequestPriority.HIGH,
-            request_id="high",
-            request_type=XRPLRequestType.SUBMIT_TX,
-            payload={},
-            future=future1,
-            created_at=1000.0,
-            timeout=30.0,
-        )
-
-        low_priority = XRPLRequest(
-            priority=-RequestPriority.LOW,
-            request_id="low",
-            request_type=XRPLRequestType.QUERY,
-            payload={},
-            future=future2,
-            created_at=1000.0,
-            timeout=30.0,
-        )
-
-        # High priority should come first (more negative)
-        self.assertLess(high_priority, low_priority)
-
-
 class TestXRPLWorkerPoolManagerInit(unittest.TestCase):
     """Tests for XRPLWorkerPoolManager initialization."""
 
-    def test_init(self):
-        """Test manager initializes correctly."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        manager = XRPLWorkerPoolManager(
-            node_pool=mock_node_pool,
-            num_workers=2,
-            max_queue_size=100,
-        )
-
-        self.assertEqual(manager._num_workers, 2)
-        self.assertEqual(manager._node_pool, mock_node_pool)
-        self.assertFalse(manager._running)
-
-    def test_register_handler(self):
-        """Test handler registration."""
+    def test_init_default_pool_sizes(self):
+        """Test manager initializes with default pool sizes from constants."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
 
-        async def test_handler(payload, client):
-            return "result"
+        self.assertEqual(manager._node_pool, mock_node_pool)
+        self.assertFalse(manager._running)
+        self.assertIsNone(manager._query_pool)
+        self.assertIsNone(manager._verification_pool)
+        self.assertEqual(manager._transaction_pools, {})
 
-        manager.register_handler("test_type", test_handler)
-
-        self.assertIn("test_type", manager._handlers)
-        self.assertEqual(manager._handlers["test_type"], test_handler)
-
-
-class TestXRPLWorkerPoolManagerAsync(unittest.IsolatedAsyncioTestCase):
-    """Async tests for XRPLWorkerPoolManager."""
-
-    async def test_start_stop(self):
-        """Test start and stop lifecycle."""
+    def test_init_custom_pool_sizes(self):
+        """Test manager initializes with custom pool sizes."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(
             node_pool=mock_node_pool,
-            num_workers=2,
+            query_pool_size=5,
+            verification_pool_size=3,
+            transaction_pool_size=2,
         )
+
+        self.assertEqual(manager._query_pool_size, 5)
+        self.assertEqual(manager._verification_pool_size, 3)
+        self.assertEqual(manager._transaction_pool_size, 2)
+
+    def test_node_pool_property(self):
+        """Test node_pool property returns the node pool."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        self.assertEqual(manager.node_pool, mock_node_pool)
+
+    def test_is_running_property(self):
+        """Test is_running property."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        self.assertFalse(manager.is_running)
+        manager._running = True
+        self.assertTrue(manager.is_running)
+
+
+class TestXRPLWorkerPoolManagerPipeline(unittest.TestCase):
+    """Tests for pipeline property and lazy initialization."""
+
+    def test_pipeline_lazy_initialization(self):
+        """Test pipeline is lazily initialized."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        # Pipeline should be None initially
+        self.assertIsNone(manager._pipeline)
+
+        # Accessing property should create it
+        pipeline = manager.pipeline
+        self.assertIsNotNone(pipeline)
+        self.assertIsNotNone(manager._pipeline)
+
+    def test_pipeline_returns_same_instance(self):
+        """Test pipeline property returns same instance."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        pipeline1 = manager.pipeline
+        pipeline2 = manager.pipeline
+
+        self.assertIs(pipeline1, pipeline2)
+
+    def test_pipeline_queue_size_before_init(self):
+        """Test pipeline_queue_size returns 0 before pipeline is created."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        self.assertEqual(manager.pipeline_queue_size, 0)
+
+
+class TestXRPLWorkerPoolManagerPoolFactories(unittest.TestCase):
+    """Tests for pool factory methods."""
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLQueryWorkerPool')
+    def test_get_query_pool_lazy_init(self, mock_pool_class):
+        """Test query pool is lazily initialized."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(
+            node_pool=mock_node_pool,
+            query_pool_size=4,
+        )
+
+        # Pool should be None initially
+        self.assertIsNone(manager._query_pool)
+
+        # Get pool should create it
+        pool = manager.get_query_pool()
+
+        mock_pool_class.assert_called_once_with(
+            node_pool=mock_node_pool,
+            num_workers=4,
+        )
+        self.assertEqual(pool, mock_pool)
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLQueryWorkerPool')
+    def test_get_query_pool_returns_same_instance(self, mock_pool_class):
+        """Test get_query_pool returns the same instance."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        pool1 = manager.get_query_pool()
+        pool2 = manager.get_query_pool()
+
+        self.assertIs(pool1, pool2)
+        # Should only be called once
+        mock_pool_class.assert_called_once()
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLVerificationWorkerPool')
+    def test_get_verification_pool_lazy_init(self, mock_pool_class):
+        """Test verification pool is lazily initialized."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(
+            node_pool=mock_node_pool,
+            verification_pool_size=3,
+        )
+
+        pool = manager.get_verification_pool()
+
+        mock_pool_class.assert_called_once_with(
+            node_pool=mock_node_pool,
+            num_workers=3,
+        )
+        self.assertEqual(pool, mock_pool)
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLTransactionWorkerPool')
+    def test_get_transaction_pool_creates_per_wallet(self, mock_pool_class):
+        """Test transaction pool is created per wallet."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(
+            node_pool=mock_node_pool,
+            transaction_pool_size=2,
+        )
+
+        mock_wallet = MagicMock()
+        mock_wallet.classic_address = "rTestAddress123456789"
+
+        manager.get_transaction_pool(mock_wallet)
+
+        mock_pool_class.assert_called_once()
+        call_kwargs = mock_pool_class.call_args[1]
+        self.assertEqual(call_kwargs['node_pool'], mock_node_pool)
+        self.assertEqual(call_kwargs['wallet'], mock_wallet)
+        self.assertEqual(call_kwargs['num_workers'], 2)
+        self.assertIsNotNone(call_kwargs['pipeline'])
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLTransactionWorkerPool')
+    def test_get_transaction_pool_reuses_for_same_wallet(self, mock_pool_class):
+        """Test transaction pool is reused for the same wallet address."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        mock_wallet = MagicMock()
+        mock_wallet.classic_address = "rTestAddress123456789"
+
+        pool1 = manager.get_transaction_pool(mock_wallet)
+        pool2 = manager.get_transaction_pool(mock_wallet)
+
+        self.assertIs(pool1, pool2)
+        mock_pool_class.assert_called_once()
+
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_worker_manager.XRPLTransactionWorkerPool')
+    def test_get_transaction_pool_custom_pool_id(self, mock_pool_class):
+        """Test transaction pool with custom pool_id."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        mock_pool = MagicMock()
+        mock_pool_class.return_value = mock_pool
+
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        mock_wallet = MagicMock()
+        mock_wallet.classic_address = "rTestAddress123456789"
+
+        manager.get_transaction_pool(mock_wallet, pool_id="custom_id")
+
+        self.assertIn("custom_id", manager._transaction_pools)
+
+
+class TestXRPLWorkerPoolManagerLifecycle(unittest.IsolatedAsyncioTestCase):
+    """Async tests for lifecycle management."""
+
+    async def test_start_sets_running(self):
+        """Test start sets running flag."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+
+        # Mock the pipeline by setting the internal attribute
+        mock_pipeline = MagicMock()
+        mock_pipeline.start = AsyncMock()
+        manager._pipeline = mock_pipeline
 
         await manager.start()
 
         self.assertTrue(manager._running)
-        self.assertEqual(len(manager._workers), 2)
+        mock_pipeline.start.assert_called_once()
+
+    async def test_start_already_running(self):
+        """Test start when already running does nothing."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+        manager._running = True
+
+        # Should not raise and should not start pipeline
+        await manager.start()
+
+    async def test_stop_sets_not_running(self):
+        """Test stop clears running flag."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+        manager._running = True
+
+        # Create a mock pipeline
+        mock_pipeline = MagicMock()
+        mock_pipeline.stop = AsyncMock()
+        manager._pipeline = mock_pipeline
 
         await manager.stop()
 
         self.assertFalse(manager._running)
-        self.assertEqual(len(manager._workers), 0)
-
-    async def test_start_already_running(self):
-        """Test start when already running."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
-        manager._running = True
-
-        # Should not create new workers
-        await manager.start()
-        self.assertEqual(len(manager._workers), 0)
+        mock_pipeline.stop.assert_called_once()
 
     async def test_stop_not_running(self):
-        """Test stop when not running."""
+        """Test stop when not running does nothing."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
         manager._running = False
@@ -163,241 +284,113 @@ class TestXRPLWorkerPoolManagerAsync(unittest.IsolatedAsyncioTestCase):
         # Should not raise
         await manager.stop()
 
-    async def test_submit_not_running(self):
-        """Test submit raises when not running."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
-        manager._running = False
-
-        with self.assertRaises(RuntimeError):
-            await manager.submit(
-                request_type=XRPLRequestType.QUERY,
-                payload={},
-            )
-
-    async def test_submit_success(self):
-        """Test successful request submission."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        mock_client = AsyncMock()
-        mock_node_pool.get_client = AsyncMock(return_value=mock_client)
-
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
-
-        # Register handler
-        async def test_handler(payload, client):
-            return {"result": "success"}
-
-        manager.register_handler(XRPLRequestType.QUERY, test_handler)
-
-        await manager.start()
-
-        try:
-            result = await asyncio.wait_for(
-                manager.submit(
-                    request_type=XRPLRequestType.QUERY,
-                    payload={"test": "data"},
-                    timeout=5.0,
-                ),
-                timeout=10.0,
-            )
-
-            self.assertEqual(result, {"result": "success"})
-        finally:
-            await manager.stop()
-
-    async def test_submit_fire_and_forget(self):
-        """Test fire-and-forget submission."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        mock_client = AsyncMock()
-        mock_node_pool.get_client = AsyncMock(return_value=mock_client)
-
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
-
-        # Register handler
-        handler_called = asyncio.Event()
-
-        async def test_handler(payload, client):
-            handler_called.set()
-            return {"result": "success"}
-
-        manager.register_handler(XRPLRequestType.VERIFY_TX, test_handler)
-
-        await manager.start()
-
-        try:
-            request_id = await manager.submit_fire_and_forget(
-                request_type=XRPLRequestType.VERIFY_TX,
-                payload={"test": "data"},
-            )
-
-            # Should return immediately with a request ID
-            self.assertIsInstance(request_id, str)
-            self.assertTrue(len(request_id) > 0)
-
-            # Wait for handler to be called
-            await asyncio.wait_for(handler_called.wait(), timeout=5.0)
-        finally:
-            await manager.stop()
-
-    async def test_get_request_status_pending(self):
-        """Test getting status of pending request."""
+    async def test_start_starts_existing_pools(self):
+        """Test start starts any existing pools."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
 
-        # Create a proper XRPLRequest for the pending dict
-        future = asyncio.Future()
-        request = XRPLRequest(
-            priority=-RequestPriority.MEDIUM,
-            request_id="test-123",
-            request_type=XRPLRequestType.QUERY,
-            payload={},
-            future=future,
-            created_at=1000.0,
-            timeout=30.0,
-        )
-        manager._pending_requests["test-123"] = request
+        # Mock the pipeline by setting the internal attribute
+        mock_pipeline = MagicMock()
+        mock_pipeline.start = AsyncMock()
+        manager._pipeline = mock_pipeline
 
-        status = manager.get_request_status("test-123")
-        self.assertEqual(status, "pending")
+        # Create mock pools
+        mock_query_pool = MagicMock()
+        mock_query_pool.start = AsyncMock()
+        manager._query_pool = mock_query_pool
 
-    async def test_get_request_status_unknown(self):
-        """Test getting status of unknown request."""
+        mock_verification_pool = MagicMock()
+        mock_verification_pool.start = AsyncMock()
+        manager._verification_pool = mock_verification_pool
+
+        mock_tx_pool = MagicMock()
+        mock_tx_pool.start = AsyncMock()
+        manager._transaction_pools["wallet1"] = mock_tx_pool
+
+        await manager.start()
+
+        mock_query_pool.start.assert_called_once()
+        mock_verification_pool.start.assert_called_once()
+        mock_tx_pool.start.assert_called_once()
+
+    async def test_stop_stops_all_pools(self):
+        """Test stop stops all pools."""
+        mock_node_pool = MagicMock(spec=XRPLNodePool)
+        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+        manager._running = True
+
+        # Create mock pools
+        mock_query_pool = MagicMock()
+        mock_query_pool.stop = AsyncMock()
+        manager._query_pool = mock_query_pool
+
+        mock_verification_pool = MagicMock()
+        mock_verification_pool.stop = AsyncMock()
+        manager._verification_pool = mock_verification_pool
+
+        mock_tx_pool = MagicMock()
+        mock_tx_pool.stop = AsyncMock()
+        manager._transaction_pools["wallet1"] = mock_tx_pool
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.stop = AsyncMock()
+        manager._pipeline = mock_pipeline
+
+        await manager.stop()
+
+        mock_query_pool.stop.assert_called_once()
+        mock_verification_pool.stop.assert_called_once()
+        mock_tx_pool.stop.assert_called_once()
+        mock_pipeline.stop.assert_called_once()
+
+
+class TestXRPLWorkerPoolManagerStats(unittest.TestCase):
+    """Tests for statistics and monitoring."""
+
+    def test_get_stats_when_no_pools(self):
+        """Test get_stats when no pools are initialized."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
 
-        status = manager.get_request_status("nonexistent")
-        self.assertEqual(status, "unknown")
+        stats = manager.get_stats()
 
-    async def test_get_request_status_completed(self):
-        """Test getting status of completed request."""
+        self.assertFalse(stats["running"])
+        self.assertIsNone(stats["pipeline"])
+        self.assertEqual(stats["pools"], {})
+
+    def test_get_stats_with_pools(self):
+        """Test get_stats includes pool stats."""
         mock_node_pool = MagicMock(spec=XRPLNodePool)
         manager = XRPLWorkerPoolManager(node_pool=mock_node_pool)
+        manager._running = True
 
-        # Add and complete a request
-        future = asyncio.Future()
-        future.set_result("done")
-        request = XRPLRequest(
-            priority=-RequestPriority.MEDIUM,
-            request_id="test-123",
-            request_type=XRPLRequestType.QUERY,
-            payload={},
-            future=future,
-            created_at=1000.0,
-            timeout=30.0,
-        )
-        manager._pending_requests["test-123"] = request
+        # Mock query pool
+        mock_query_stats = MagicMock()
+        mock_query_stats.to_dict.return_value = {"total_requests": 100}
+        mock_query_pool = MagicMock()
+        mock_query_pool.stats = mock_query_stats
+        manager._query_pool = mock_query_pool
 
-        status = manager.get_request_status("test-123")
-        self.assertEqual(status, "completed")
+        # Mock verification pool
+        mock_verify_stats = MagicMock()
+        mock_verify_stats.to_dict.return_value = {"total_requests": 50}
+        mock_verify_pool = MagicMock()
+        mock_verify_pool.stats = mock_verify_stats
+        manager._verification_pool = mock_verify_pool
 
-    async def test_submit_timeout(self):
-        """Test request timeout handling."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        mock_client = AsyncMock()
-        mock_node_pool.get_client = AsyncMock(return_value=mock_client)
+        # Mock transaction pool
+        mock_tx_stats = MagicMock()
+        mock_tx_stats.to_dict.return_value = {"total_requests": 25}
+        mock_tx_pool = MagicMock()
+        mock_tx_pool.stats = mock_tx_stats
+        manager._transaction_pools["rTestAddress12345678"] = mock_tx_pool
 
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
+        stats = manager.get_stats()
 
-        # Register a slow handler
-        async def slow_handler(payload, client):
-            await asyncio.sleep(10)
-            return {"result": "success"}
-
-        manager.register_handler(XRPLRequestType.QUERY, slow_handler)
-
-        await manager.start()
-
-        try:
-            with self.assertRaises(asyncio.TimeoutError):
-                await manager.submit(
-                    request_type=XRPLRequestType.QUERY,
-                    payload={},
-                    timeout=0.1,  # Very short timeout
-                )
-        finally:
-            await manager.stop()
-
-    async def test_submit_no_handler(self):
-        """Test submission with no registered handler."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        mock_client = AsyncMock()
-        mock_node_pool.get_client = AsyncMock(return_value=mock_client)
-
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
-
-        # Don't register any handlers
-
-        await manager.start()
-
-        try:
-            with self.assertRaises(Exception):  # Should fail with no handler
-                await asyncio.wait_for(
-                    manager.submit(
-                        request_type="unknown_type",
-                        payload={},
-                        timeout=5.0,
-                    ),
-                    timeout=10.0,
-                )
-        finally:
-            await manager.stop()
-
-
-class TestXRPLWorkerPoolManagerPriorityQueue(unittest.IsolatedAsyncioTestCase):
-    """Tests for priority queue behavior."""
-
-    async def test_priority_ordering(self):
-        """Test that high priority requests are processed first."""
-        mock_node_pool = MagicMock(spec=XRPLNodePool)
-        mock_client = AsyncMock()
-        mock_node_pool.get_client = AsyncMock(return_value=mock_client)
-
-        manager = XRPLWorkerPoolManager(node_pool=mock_node_pool, num_workers=1)
-
-        # Track order of processing
-        processed_order = []
-
-        async def tracking_handler(payload, client):
-            processed_order.append(payload["id"])
-            return {"result": payload["id"]}
-
-        manager.register_handler(XRPLRequestType.QUERY, tracking_handler)
-
-        await manager.start()
-
-        try:
-            # Submit requests with different priorities simultaneously
-            tasks = [
-                manager.submit(
-                    request_type=XRPLRequestType.QUERY,
-                    payload={"id": "low"},
-                    priority=RequestPriority.LOW,
-                    timeout=5.0,
-                ),
-                manager.submit(
-                    request_type=XRPLRequestType.QUERY,
-                    payload={"id": "high"},
-                    priority=RequestPriority.HIGH,
-                    timeout=5.0,
-                ),
-                manager.submit(
-                    request_type=XRPLRequestType.QUERY,
-                    payload={"id": "medium"},
-                    priority=RequestPriority.MEDIUM,
-                    timeout=5.0,
-                ),
-            ]
-
-            await asyncio.gather(*tasks)
-
-            # High priority should be processed first
-            # Note: Due to async nature, this might not always be deterministic
-            # but with a single worker, ordering should generally be preserved
-            self.assertIn("high", processed_order)
-            self.assertIn("medium", processed_order)
-            self.assertIn("low", processed_order)
-        finally:
-            await manager.stop()
+        self.assertTrue(stats["running"])
+        self.assertEqual(stats["pools"]["query"], {"total_requests": 100})
+        self.assertEqual(stats["pools"]["verification"], {"total_requests": 50})
+        self.assertIn("tx_rTestAdd", stats["pools"])
 
 
 if __name__ == "__main__":
