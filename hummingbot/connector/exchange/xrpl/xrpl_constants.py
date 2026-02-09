@@ -116,7 +116,7 @@ TRANSIENT_RETRY_ERRORS = ["telCAN_NOT_QUEUE"]
 # Transaction Submission Pipeline
 # =============================================================================
 # All submissions are serialized to prevent sequence number race conditions
-PIPELINE_SUBMISSION_DELAY_MS = 300  # Delay between submissions (milliseconds)
+PIPELINE_SUBMISSION_DELAY_MS = 350  # Delay between submissions (milliseconds)
 PIPELINE_MAX_QUEUE_SIZE = 500  # Maximum pending submissions in queue
 FEE_MULTIPLIER = 3  # Multiplier for transaction fees (ensures priority)
 
@@ -181,7 +181,7 @@ WORKER_POOL_TASK_QUEUE_SIZE = 100  # Max pending tasks per pool
 # =============================================================================
 # Polling Data Source Configuration
 # =============================================================================
-POLLING_INTERVAL = 3.0  # Account state poll interval (seconds)
+POLLING_INTERVAL = 5.0  # Account state poll interval (seconds)
 SEEN_TX_HASHES_MAX_SIZE = 1000  # Max transaction hashes for deduplication
 
 # =============================================================================
