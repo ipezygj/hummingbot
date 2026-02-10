@@ -21,7 +21,6 @@ class PMMAdjustedConfig(ControllerConfigBase):
     """
     controller_type: str = "generic"
     controller_name: str = "pmm_adjusted"
-    candles_config: List[CandlesConfig] = []
     connector_name: str = Field(
         default="binance",
         json_schema_extra={
@@ -232,11 +231,6 @@ class PMMAdjusted(ControllerBase):
         self.config = config
         self.market_data_provider.initialize_rate_sources([ConnectorPair(
             connector_name=config.connector_name, trading_pair=config.trading_pair)])
-        self.config.candles_config = [
-            CandlesConfig(connector=self.config.candles_connector_name,
-                          trading_pair=self.config.candles_trading_pair,
-                          interval=self.config.candles_interval)
-        ]
 
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """
@@ -647,3 +641,10 @@ class PMMAdjusted(ControllerBase):
         status.append(f"╘{'═' * (inner_width)}╛")
 
         return status
+
+    def get_candles_config(self) -> List[CandlesConfig]:
+        return [CandlesConfig(
+            connector=self.config.candles_connector_name,
+            trading_pair=self.config.candles_trading_pair,
+            interval=self.config.candles_interval
+        )]

@@ -5,7 +5,6 @@ from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from hummingbot.core.data_type.common import MarketDict, OrderType, PositionMode, PriceType, TradeType
-from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase
 from hummingbot.strategy_v2.utils.common import parse_comma_separated_list, parse_enum_value
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
@@ -21,7 +20,6 @@ class PMMConfig(ControllerConfigBase):
     """
     controller_type: str = "generic"
     controller_name: str = "pmm"
-    candles_config: List[CandlesConfig] = []
     connector_name: str = Field(
         default="binance",
         json_schema_extra={

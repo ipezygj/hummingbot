@@ -10,7 +10,7 @@ This controller replicates the legacy pure_market_making strategy with:
 """
 
 from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from pydantic import Field, field_validator
@@ -19,6 +19,7 @@ from hummingbot.core.data_type.common import MarketDict, PriceType, TradeType
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 from hummingbot.strategy_v2.executors.order_executor.data_types import ExecutionStrategy, OrderExecutorConfig
+from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.models.executors import CloseType
 
@@ -73,13 +74,6 @@ class PMMV1Config(ControllerConfigBase):
             "prompt": "Enter comma-separated sell spreads as decimals (e.g., '0.01,0.02' for 1%, 2%):",
         }
     )
-    minimum_spread: Decimal = Field(
-        default=Decimal("-1"),
-        json_schema_extra={
-            "prompt_on_new": False, "is_updatable": True,
-            "prompt": "Enter minimum spread as decimal (-1 to disable). Orders below this spread will be cancelled:",
-        }
-    )
 
     # === Timing Configuration ===
     order_refresh_time: int = Field(
@@ -87,13 +81,6 @@ class PMMV1Config(ControllerConfigBase):
         json_schema_extra={
             "prompt_on_new": True, "is_updatable": True,
             "prompt": "Enter order refresh time in seconds (how often to refresh orders):",
-        }
-    )
-    max_order_age: int = Field(
-        default=1800,
-        json_schema_extra={
-            "prompt_on_new": False, "is_updatable": True,
-            "prompt": "Enter max order age in seconds (force refresh after this time, default 1800 = 30 min):",
         }
     )
     order_refresh_tolerance_pct: Decimal = Field(
@@ -182,6 +169,38 @@ class PMMV1(ControllerBase):
         self.config = config
         self.market_data_provider.initialize_rate_sources([ConnectorPair(
             connector_name=config.connector_name, trading_pair=config.trading_pair)])
+        
+        # Track when each level can next create orders (for filled_order_delay)
+        self._level_next_create_timestamps: Dict[str, float] = {}
+        # Track last seen executor states to detect fills
+        self._last_seen_executors: Dict[str, bool] = {}
+        
+    def _detect_filled_executors(self):
+        """Detect executors that were filled (disappeared from active executors)."""
+        # Get current active executor IDs by level
+        current_active_by_level = {}
+        for executor in self.executors_info:
+            if executor.is_active:
+                level_id = executor.custom_info.get("level_id", "")
+                if level_id:
+                    current_active_by_level[level_id] = True
+        
+        # Check for levels that were active before but aren't now (indicating fills)
+        for level_id, was_active in self._last_seen_executors.items():
+            if was_active and level_id not in current_active_by_level:
+                # This level was active before but not now - likely filled
+                self._handle_filled_executor(level_id)
+        
+        # Update last seen state
+        self._last_seen_executors = current_active_by_level.copy()
+
+    def _handle_filled_executor(self, level_id: str):
+        """Set the next create timestamp for a level when its executor is filled."""
+        current_time = self.market_data_provider.time()
+        self._level_next_create_timestamps[level_id] = current_time + self.config.filled_order_delay
+        
+        # Log the filled order delay
+        self.logger().info(f"Order on level {level_id} filled. Next order for this level can be created after {self.config.filled_order_delay}s delay.")
 
     def _get_reference_price(self) -> Decimal:
         """Get reference price (mid price)."""
@@ -201,6 +220,9 @@ class PMMV1(ControllerBase):
         """
         Update processed data with reference price, inventory info, and derived metrics.
         """
+        # Detect filled executors (executors that disappeared since last check)
+        self._detect_filled_executors()
+        
         reference_price = self._get_reference_price()
 
         # Calculate inventory metrics for skew
@@ -357,6 +379,10 @@ class PMMV1(ControllerBase):
 
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """Determine actions based on current state."""
+        # Don't create new actions if the controller is being stopped
+        if self.status == RunnableStatus.TERMINATED:
+            return []
+            
         actions = []
         actions.extend(self.create_actions_proposal())
         actions.extend(self.stop_actions_proposal())
@@ -399,11 +425,6 @@ class PMMV1(ControllerBase):
             side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
             price = reference_price * (Decimal("1") + side_multiplier * spread_in_pct)
 
-            # Check minimum spread
-            if self.config.minimum_spread > 0:
-                actual_spread = abs(price - reference_price) / reference_price
-                if actual_spread < self.config.minimum_spread:
-                    continue
 
             # Apply inventory skew to order amount (already in base asset)
             amount = self.config.order_amount * skew
@@ -434,21 +455,25 @@ class PMMV1(ControllerBase):
 
         A level is considered "working" (and won't get a new executor) if:
         - It has an active executor, OR
-        - Its last executor was filled (POSITION_HOLD) within filled_order_delay
+        - Its filled_order_delay period hasn't expired yet
         """
         current_time = self.market_data_provider.time()
-        working_levels = self.filter_executors(
+        
+        # Get levels with active executors
+        active_levels = self.filter_executors(
             executors=self.executors_info,
-            filter_func=lambda x: x.is_active or (
-                x.close_type == CloseType.POSITION_HOLD
-                and x.filled_amount_quote > 0
-                and current_time - x.close_timestamp < self.config.filled_order_delay
-            )
+            filter_func=lambda x: x.is_active
         )
-        working_level_ids = [executor.custom_info.get("level_id", "") for executor in working_levels]
+        active_level_ids = [executor.custom_info.get("level_id", "") for executor in active_levels]
 
         # Get missing levels
-        missing_levels = self._get_not_active_levels_ids(working_level_ids)
+        missing_levels = self._get_not_active_levels_ids(active_level_ids)
+
+        # Filter out levels still in filled_order_delay period
+        missing_levels = [
+            level_id for level_id in missing_levels
+            if current_time >= self._level_next_create_timestamps.get(level_id, 0)
+        ]
 
         # Apply price band filter
         missing_levels = self._apply_price_band_filter(missing_levels)
@@ -502,8 +527,6 @@ class PMMV1(ControllerBase):
         """Create actions to stop executors."""
         stop_actions = []
         stop_actions.extend(self._executors_to_refresh())
-        stop_actions.extend(self._executors_past_max_age())
-        stop_actions.extend(self._executors_below_minimum_spread())
         return stop_actions
 
     def _executors_to_refresh(self) -> List[StopExecutorAction]:
@@ -561,9 +584,23 @@ class PMMV1(ControllerBase):
             current_sell_prices, sell_proposal_prices
         )
 
-        # If both sides within tolerance, don't refresh anything
+        # Log tolerance decisions
         if buys_within_tolerance and sells_within_tolerance:
+            if executors_past_refresh:
+                executor_level_ids = [e.custom_info.get("level_id", "unknown") for e in executors_past_refresh]
+                self.logger().info(f"Orders {executor_level_ids} will not be canceled because they are within the order tolerance ({self.config.order_refresh_tolerance_pct:.2%}).")
             return []
+
+        # Log which orders are being refreshed due to tolerance
+        if executors_past_refresh:
+            executor_level_ids = [e.custom_info.get("level_id", "unknown") for e in executors_past_refresh]
+            tolerance_reason = []
+            if not buys_within_tolerance:
+                tolerance_reason.append("buy orders outside tolerance")
+            if not sells_within_tolerance:
+                tolerance_reason.append("sell orders outside tolerance")
+            reason = " and ".join(tolerance_reason)
+            self.logger().info(f"Refreshing orders {executor_level_ids} due to {reason} (tolerance: {self.config.order_refresh_tolerance_pct:.2%}).")
 
         # Otherwise, refresh all executors
         return [
@@ -600,47 +637,7 @@ class PMMV1(ControllerBase):
 
         return True
 
-    def _executors_past_max_age(self) -> List[StopExecutorAction]:
-        """Get executors past maximum age (force refresh)."""
-        current_time = self.market_data_provider.time()
 
-        return [
-            StopExecutorAction(
-                controller_id=self.config.id,
-                executor_id=executor.id,
-                keep_position=True
-            )
-            for executor in self.executors_info
-            if (executor.is_active and
-                not executor.is_trading and
-                current_time - executor.timestamp > self.config.max_order_age)
-        ]
-
-    def _executors_below_minimum_spread(self) -> List[StopExecutorAction]:
-        """Get executors with spread below minimum."""
-        if self.config.minimum_spread <= 0:
-            return []
-
-        reference_price = self.processed_data["reference_price"]
-
-        executors_to_stop = []
-        for executor in self.executors_info:
-            if not executor.is_active or executor.is_trading:
-                continue
-
-            order_price = getattr(executor.config, 'price', None)
-            if order_price is None:
-                continue
-
-            actual_spread = abs(order_price - reference_price) / reference_price
-            if actual_spread < self.config.minimum_spread:
-                executors_to_stop.append(StopExecutorAction(
-                    controller_id=self.config.id,
-                    executor_id=executor.id,
-                    keep_position=True
-                ))
-
-        return executors_to_stop
 
     def _get_executor_config(
         self, level_id: str, price: Decimal, amount: Decimal, trade_type: TradeType
