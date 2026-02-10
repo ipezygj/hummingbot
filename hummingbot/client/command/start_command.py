@@ -112,8 +112,8 @@ class StartCommand(GatewayChainApiManager):
         # Delegate strategy initialization to trading_core
         try:
             strategy_config = None
-            if self.trading_core.is_script_strategy(self.trading_core.strategy_name):
-                # Config is always required for V2 scripts
+            if self.trading_core.is_v2_strategy(self.trading_core.strategy_name):
+                # Config is always required for V2 strategies
                 strategy_config = self.strategy_file_name
 
             success = await self.trading_core.start_strategy(
