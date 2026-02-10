@@ -65,11 +65,10 @@ class StrategyV2ConfigBase(BaseClientModel):
 
     Fields:
     - script_file_name: The script file that this config is for (set via os.path.basename(__file__) in subclass).
-    - markets: The markets/exchanges and trading pairs the strategy uses.
-    - controllers_config: Optional controller configuration file paths.
+    - controllers_config: Controller configuration file paths. Markets are automatically collected from controllers.
+    - candles_config: Candles configurations for strategy-level data feeds. Controllers may also define their own candles.
 
-    Subclasses can define their own `candles_config` field using the
-    static utility method `parse_candles_config_str()`.
+    Markets are collected from both controllers and the strategy class itself via their respective update_markets class methods.
     """
     script_file_name: str = ""
     controllers_config: List[str] = Field(
@@ -79,26 +78,7 @@ class StrategyV2ConfigBase(BaseClientModel):
             "prompt_on_new": True,
         }
     )
-    markets: MarketDict = Field(
-        default={},
-        json_schema_extra={
-            "prompt": "Enter markets (format: exchange1.pair1,pair2:exchange2.pair1), leave empty if none: ",
-            "prompt_on_new": False,
-        }
-    )
 
-    @field_validator("markets", mode="before")
-    @classmethod
-    def parse_markets(cls, v):
-        if isinstance(v, str):
-            if not v.strip():
-                return {}
-            return cls.parse_markets_str(v)
-        elif isinstance(v, dict):
-            return v
-        if v is None:
-            return {}
-        return v
 
     @field_validator("controllers_config", mode="before")
     @classmethod
@@ -111,6 +91,7 @@ class StrategyV2ConfigBase(BaseClientModel):
         if v is None:
             return []
         return v
+
 
     def load_controller_configs(self):
         loaded_configs = []
@@ -154,30 +135,6 @@ class StrategyV2ConfigBase(BaseClientModel):
                 markets_dict[exchange_name] = set(trading_pairs.split(','))
         return markets_dict
 
-    @staticmethod
-    def parse_candles_config_str(v: str) -> List[CandlesConfig]:
-        configs = []
-        if v.strip():
-            entries = v.split(':')
-            for entry in entries:
-                parts = entry.split('.')
-                if len(parts) != 4:
-                    raise ValueError(f"Invalid candles config format in segment '{entry}'. "
-                                     "Expected format: 'exchange.tradingpair.interval.maxrecords'")
-                connector, trading_pair, interval, max_records_str = parts
-                try:
-                    max_records = int(max_records_str)
-                except ValueError:
-                    raise ValueError(f"Invalid max_records value '{max_records_str}' in segment '{entry}'. "
-                                     "max_records should be an integer.")
-                config = CandlesConfig(
-                    connector=connector,
-                    trading_pair=trading_pair,
-                    interval=interval,
-                    max_records=max_records
-                )
-                configs.append(config)
-        return configs
 
 
 class StrategyV2Base(StrategyPyBase):
@@ -185,8 +142,8 @@ class StrategyV2Base(StrategyPyBase):
     Unified base class for both simple script strategies and V2 strategies using smart components.
 
     V2 infrastructure (MarketDataProvider, ExecutorOrchestrator, actions_queue) is always initialized.
-    When config is a StrategyV2ConfigBase, controllers are loaded and orchestration runs automatically.
-    When config is None or a simple BaseModel, simple scripts can still use executors and market data on demand.
+    Controllers are loaded and orchestration runs automatically when config is a StrategyV2ConfigBase.
+    Markets are collected from both controllers and the strategy config's update_markets method.
     """
     # Class-level markets definition used by both simple scripts and V2 strategies
     markets: Dict[str, Set[str]] = {}
@@ -205,26 +162,61 @@ class StrategyV2Base(StrategyPyBase):
         return lsb_logger
 
     @classmethod
+    def update_markets(cls, config: "StrategyV2ConfigBase", markets: MarketDict) -> MarketDict:
+        """
+        Update the markets dict with strategy-specific markets.
+        Subclasses should override this method to add their markets.
+        
+        :param config: Strategy configuration
+        :param markets: Current markets dictionary
+        :return: Updated markets dictionary
+        """
+        return markets
+
+    @classmethod
     def init_markets(cls, config: BaseModel):
         """
         Initialize the markets that the strategy is going to use. This method is called when the strategy is created in
         the start command. Can be overridden to implement custom behavior.
 
-        Merges markets from controllers (if any) and from config.markets field.
+        Markets are collected from controllers and the strategy config itself.
         """
         if isinstance(config, StrategyV2ConfigBase):
             markets = MarketDict({})
             # From controllers
             controllers_configs = config.load_controller_configs()
             for controller_config in controllers_configs:
-                markets = controller_config.update_markets(markets)
-            # From config.markets field
-            for connector, pairs in config.markets.items():
-                existing = markets.get(connector, set())
-                markets[connector] = existing | pairs
+                controller_class = controller_config.get_controller_class()
+                markets = controller_class.update_markets(controller_config, markets)
+            # From strategy
+            markets = cls.update_markets(config, markets)
             cls.markets = markets
         else:
             raise NotImplementedError
+
+    def initialize_candles(self):
+        """
+        Initialize candles for the strategy. This method collects candles configurations
+        from controllers only.
+        """
+        # From controllers (after they are initialized)
+        for controller in self.controllers.values():
+            controller.initialize_candles()
+    
+    def get_candles_df(self, connector_name: str, trading_pair: str, interval: str) -> pd.DataFrame:
+        """
+        Get candles data as DataFrame for the specified parameters.
+        
+        :param connector_name: Name of the connector (e.g., 'binance')
+        :param trading_pair: Trading pair (e.g., 'BTC-USDT')
+        :param interval: Candle interval (e.g., '1m', '5m', '1h')
+        :return: DataFrame with candle data (OHLCV)
+        """
+        return self.market_data_provider.get_candles_df(
+            connector_name=connector_name,
+            trading_pair=trading_pair,
+            interval=interval
+        )
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: Optional[BaseModel] = None):
         """
@@ -253,6 +245,8 @@ class StrategyV2Base(StrategyPyBase):
         # Initialize controllers from config if available
         if isinstance(config, StrategyV2ConfigBase):
             self.initialize_controllers()
+            # Initialize candles after controllers are set up
+            self.initialize_candles()
 
         self.executor_orchestrator = _get_executor_orchestrator_class()(
             strategy=self,
