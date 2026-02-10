@@ -6,15 +6,14 @@ from typing import Dict
 
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.utils import split_hb_trading_pair
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent, OrderType, TradeType
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class VWAPConfig(BaseClientModel):
+class VWAPConfig(StrategyV2ConfigBase):
     """
     Configuration parameters for the VWAP strategy.
     """
@@ -43,7 +42,7 @@ class VWAPConfig(BaseClientModel):
         "prompt_on_new": True})
 
 
-class VWAPExample(ScriptStrategyBase):
+class VWAPExample(StrategyV2Base):
     """
     BotCamp Cohort: 7 (Apr 2024)
     Description:
@@ -58,7 +57,7 @@ class VWAPExample(ScriptStrategyBase):
         cls.markets = {config.connector_name: {config.trading_pair}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: VWAPConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         self.initialized = False
         self.vwap: Dict = {"connector_name": self.config.connector_name,

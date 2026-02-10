@@ -5,7 +5,6 @@ from typing import Dict
 
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.exchange.xrpl.xrpl_exchange import XrplExchange
 from hummingbot.connector.exchange.xrpl.xrpl_utils import (
@@ -15,10 +14,10 @@ from hummingbot.connector.exchange.xrpl.xrpl_utils import (
     RemoveLiquidityResponse,
 )
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class XRPLTriggeredLiquidityConfig(BaseClientModel):
+class XRPLTriggeredLiquidityConfig(StrategyV2ConfigBase):
     script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     trading_pair: str = Field(
         "XRP-RLUSD", json_schema_extra={"prompt": "Trading pair (e.g. XRP-RLUSD)", "prompt_on_new": True}
@@ -66,7 +65,7 @@ class XRPLTriggeredLiquidityConfig(BaseClientModel):
     )
 
 
-class XRPLTriggeredLiquidity(ScriptStrategyBase):
+class XRPLTriggeredLiquidity(StrategyV2Base):
     """
     This strategy monitors XRPL DEX prices and add liquidity to AMM Pools when the price is within a certain range.
     Remove liquidity if the price is outside the range.
@@ -78,7 +77,7 @@ class XRPLTriggeredLiquidity(ScriptStrategyBase):
         cls.markets = {"xrpl": {config.trading_pair}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: XRPLTriggeredLiquidityConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         self.exchange = "xrpl"
         self.base, self.quote = self.config.trading_pair.split("-")

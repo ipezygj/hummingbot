@@ -5,15 +5,14 @@ from typing import Dict, List
 
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class SimplePMMConfig(BaseClientModel):
+class SimplePMMConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
     exchange: str = Field("binance_paper_trade")
     trading_pair: str = Field("ETH-USDT")
@@ -24,7 +23,7 @@ class SimplePMMConfig(BaseClientModel):
     price_type: str = Field("mid")
 
 
-class SimplePMM(ScriptStrategyBase):
+class SimplePMM(StrategyV2Base):
     """
     BotCamp Cohort: Sept 2022
     Design Template: https://hummingbot-foundation.notion.site/Simple-PMM-63cc765486dd42228d3da0b32537fc92
@@ -44,7 +43,7 @@ class SimplePMM(ScriptStrategyBase):
         cls.price_source = PriceType.LastTrade if config.price_type == "last" else PriceType.MidPrice
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimplePMMConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
 
     def on_tick(self):

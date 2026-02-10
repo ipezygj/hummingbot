@@ -3,14 +3,22 @@ import os
 from datetime import datetime
 from typing import Dict
 
+from pydantic import Field
+
 from hummingbot import data_path
 from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.core.event.event_forwarder import SourceInfoEventForwarder
 from hummingbot.core.event.events import OrderBookEvent, OrderBookTradeEvent
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class DownloadTradesAndOrderBookSnapshots(ScriptStrategyBase):
+class DownloadTradesAndOrderBookSnapshotsConfig(StrategyV2ConfigBase):
+    script_file_name: str = os.path.basename(__file__)
+    markets: MarketDict = Field(default={"binance_paper_trade": {"ETH-USDT", "BTC-USDT"}})
+
+
+class DownloadTradesAndOrderBookSnapshots(StrategyV2Base):
     exchange = os.getenv("EXCHANGE", "binance_paper_trade")
     trading_pairs = os.getenv("TRADING_PAIRS", "ETH-USDT,BTC-USDT")
     depth = int(os.getenv("DEPTH", 50))
@@ -23,11 +31,11 @@ class DownloadTradesAndOrderBookSnapshots(ScriptStrategyBase):
     current_date = None
     ob_file_paths = {}
     trades_file_paths = {}
-    markets = {exchange: set(trading_pairs)}
     subscribed_to_order_book_trade_event: bool = False
 
-    def __init__(self, connectors: Dict[str, ConnectorBase]):
-        super().__init__(connectors)
+    def __init__(self, connectors: Dict[str, ConnectorBase], config: DownloadTradesAndOrderBookSnapshotsConfig):
+        super().__init__(connectors, config)
+        self.config = config
         self.create_order_book_and_trade_files()
         self.order_book_trade_event = SourceInfoEventForwarder(self._process_public_trade)
 

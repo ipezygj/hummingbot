@@ -7,7 +7,6 @@ from typing import Any, Dict
 import pandas as pd
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.exchange.xrpl.xrpl_exchange import XrplExchange
 from hummingbot.connector.exchange.xrpl.xrpl_utils import PoolInfo
@@ -16,10 +15,10 @@ from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class XRPLSimpleArbConfig(BaseClientModel):
+class XRPLSimpleArbConfig(StrategyV2ConfigBase):
     script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     trading_pair_xrpl: str = Field(
         "XRP-RLUSD", json_schema_extra={"prompt": "Trading pair on XRPL(e.g. XRP-RLUSD)", "prompt_on_new": True}
@@ -46,7 +45,7 @@ class XRPLSimpleArbConfig(BaseClientModel):
     test_xrpl_order: bool = Field(False, json_schema_extra={"prompt": "Test XRPL order", "prompt_on_new": True})
 
 
-class XRPLSimpleArb(ScriptStrategyBase):
+class XRPLSimpleArb(StrategyV2Base):
     """
     This strategy monitors XRPL DEX prices and add liquidity to AMM Pools when the price is within a certain range.
     Remove liquidity if the price is outside the range.
@@ -58,7 +57,7 @@ class XRPLSimpleArb(ScriptStrategyBase):
         cls.markets = {"xrpl": {config.trading_pair_xrpl}, config.cex_exchange: {config.trading_pair_cex}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: XRPLSimpleArbConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         self.exchange_xrpl = "xrpl"
         self.exchange_cex = config.cex_exchange

@@ -6,14 +6,13 @@ from typing import Dict, Optional
 import pandas as pd
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.client.ui.interface_utils import format_df_for_printout
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.data_feed.amm_gateway_data_feed import AmmGatewayDataFeed
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class AMMDataFeedConfig(BaseClientModel):
+class AMMDataFeedConfig(StrategyV2ConfigBase):
     script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     connector: str = Field("jupiter/router", json_schema_extra={
         "prompt": "DEX connector in format 'name/type' (e.g., jupiter/router, uniswap/amm)", "prompt_on_new": True})
@@ -30,7 +29,7 @@ class AMMDataFeedConfig(BaseClientModel):
         "prompt_on_new": False})
 
 
-class AMMDataFeedExample(ScriptStrategyBase):
+class AMMDataFeedExample(StrategyV2Base):
     """
     This example shows how to use the AmmGatewayDataFeed to fetch prices from a DEX
     """
@@ -41,7 +40,7 @@ class AMMDataFeedExample(ScriptStrategyBase):
         cls.markets = {}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: AMMDataFeedConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         self.price_history = []
         self.last_save_time = datetime.now()

@@ -5,17 +5,15 @@ from typing import Dict
 import pandas as pd
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
-from hummingbot.data_feed.market_data_provider import MarketDataProvider
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 
 
-class SimpleXEMMConfig(BaseClientModel):
+class SimpleXEMMConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
     maker_connector: str = Field("kucoin_paper_trade", json_schema_extra={
         "prompt": "Maker connector where the bot will place maker orders", "prompt_on_new": True})
@@ -35,7 +33,7 @@ class SimpleXEMMConfig(BaseClientModel):
         "prompt": "Max order age (in seconds)", "prompt_on_new": True})
 
 
-class SimpleXEMM(ScriptStrategyBase):
+class SimpleXEMM(StrategyV2Base):
     """
     BotCamp Cohort: Sept 2022 (updated May 2024)
     Design Template: https://hummingbot-foundation.notion.site/Simple-XEMM-Example-f08cf7546ea94a44b389672fd21bb9ad
@@ -51,13 +49,12 @@ class SimpleXEMM(ScriptStrategyBase):
         cls.markets = {config.maker_connector: {config.maker_trading_pair}, config.taker_connector: {config.taker_trading_pair}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimpleXEMMConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         # Track our active maker order IDs
         self.active_buy_order_id = None
         self.active_sell_order_id = None
-        # Initialize market data provider for rate oracle
-        self.market_data_provider = MarketDataProvider(connectors)
+        # Initialize rate sources for market data provider
         self.market_data_provider.initialize_rate_sources([
             ConnectorPair(connector_name=config.maker_connector, trading_pair=config.maker_trading_pair),
             ConnectorPair(connector_name=config.taker_connector, trading_pair=config.taker_trading_pair)

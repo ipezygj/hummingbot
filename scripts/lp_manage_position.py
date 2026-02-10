@@ -8,15 +8,14 @@ from typing import Dict, Union
 
 from pydantic import Field
 
-from hummingbot.client.config.config_data_types import BaseClientModel
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.gateway.common_types import ConnectorType, get_connector_type
 from hummingbot.connector.gateway.gateway_lp import AMMPoolInfo, AMMPositionInfo, CLMMPoolInfo, CLMMPositionInfo
 from hummingbot.core.utils.async_utils import safe_ensure_future
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
-class LpPositionManagerConfig(BaseClientModel):
+class LpPositionManagerConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
     connector: str = Field("raydium/clmm", json_schema_extra={
         "prompt": "AMM or CLMM connector in format 'name/type' (e.g. raydium/clmm, uniswap/amm)", "prompt_on_new": True})
@@ -42,7 +41,7 @@ class LpPositionManagerConfig(BaseClientModel):
         "prompt": "How often to check price in seconds (default: 10)", "prompt_on_new": False})
 
 
-class LpPositionManager(ScriptStrategyBase):
+class LpPositionManager(StrategyV2Base):
     """
     This strategy shows how to use the Gateway LP connector to manage a AMM or CLMM position.
     It monitors pool prices, opens a position when a target price is reached,
@@ -54,7 +53,7 @@ class LpPositionManager(ScriptStrategyBase):
         cls.markets = {config.connector: {config.trading_pair}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: LpPositionManagerConfig):
-        super().__init__(connectors)
+        super().__init__(connectors, config)
         self.config = config
         self.exchange = config.connector  # Now uses connector directly (e.g., "raydium/clmm")
         self.connector_type = get_connector_type(config.connector)
