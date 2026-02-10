@@ -28,7 +28,7 @@ from hummingbot.model.order import Order
 from hummingbot.model.position import Position
 from hummingbot.model.sql_connection_manager import SQLConnectionManager, SQLConnectionType
 from hummingbot.model.trade_fill import TradeFill
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
 from hummingbot.strategy_v2.executors.position_executor.position_executor import PositionExecutor
 from hummingbot.strategy_v2.models.base import RunnableStatus
@@ -43,7 +43,7 @@ class MarketsRecorderTests(IsolatedAsyncioWrapperTestCase):
         market_info = MagicMock()
         market_info.market = market
 
-        strategy = MagicMock(spec=ScriptStrategyBase)
+        strategy = MagicMock(spec=StrategyV2Base)
         type(strategy).market_info = PropertyMock(return_value=market_info)
         type(strategy).trading_pair = PropertyMock(return_value="ETH-USDT")
         strategy.buy.side_effect = ["OID-BUY-1", "OID-BUY-2", "OID-BUY-3"]

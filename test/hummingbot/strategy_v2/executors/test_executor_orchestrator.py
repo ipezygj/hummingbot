@@ -9,7 +9,7 @@ from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.core.data_type.common import TradeType
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
 from hummingbot.model.position import Position
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base
 from hummingbot.strategy_v2.executors.arbitrage_executor.arbitrage_executor import ArbitrageExecutor
 from hummingbot.strategy_v2.executors.arbitrage_executor.data_types import ArbitrageExecutorConfig
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
@@ -46,7 +46,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
         market_info = MagicMock()
         market_info.market = market
 
-        strategy = MagicMock(spec=ScriptStrategyBase)
+        strategy = MagicMock(spec=StrategyV2Base)
         type(strategy).market_info = PropertyMock(return_value=market_info)
         type(strategy).trading_pair = PropertyMock(return_value="ETH-USDT")
         connector = MagicMock(spec=ExchangePyBase)
