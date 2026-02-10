@@ -30,7 +30,6 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.model.sql_connection_manager import SQLConnectionManager
 from hummingbot.model.trade_fill import TradeFill
 from hummingbot.notifier.notifier_base import NotifierBase
-from hummingbot.strategy.directional_strategy_base import DirectionalStrategyBase
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.strategy_base import StrategyBase
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
@@ -384,7 +383,7 @@ class TradingCore:
             strategy_class = next((member for member_name, member in inspect.getmembers(strategy_module)
                                  if inspect.isclass(member) and
                                  issubclass(member, StrategyV2Base) and
-                                 member not in [StrategyV2Base, DirectionalStrategyBase]))
+                                 member is not StrategyV2Base))
         except StopIteration:
             raise InvalidScriptModule(f"The module {strategy_name} does not contain any subclass of StrategyV2Base")
 
