@@ -134,14 +134,18 @@ class DirectionalTradingControllerConfigBase(ControllerConfigBase):
             time_limit_order_type=OrderType.MARKET  # Defaulting to MARKET as per requirement
         )
 
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        return markets.add_or_update(self.connector_name, self.trading_pair)
-
 
 class DirectionalTradingControllerBase(ControllerBase):
     """
     This class represents the base class for a Directional Strategy.
     """
+
+    @classmethod
+    def update_markets(cls, config: ControllerConfigBase, markets: MarketDict) -> MarketDict:
+        """
+        Update markets with the connector and trading pair for this directional trading controller.
+        """
+        return markets.add_or_update(config.connector_name, config.trading_pair)
 
     def __init__(self, config: DirectionalTradingControllerConfigBase, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
