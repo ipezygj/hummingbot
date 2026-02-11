@@ -262,15 +262,16 @@ class ControllerBase(RunnableBase):
             await self.actions_queue.put(executor_actions)
             self.executors_update_event.clear()  # Clear the event after sending the actions
 
-    def filter_executors(self, executor_filter: ExecutorFilter = None, filter_func: Callable[[ExecutorInfo], bool] = None) -> List[ExecutorInfo]:
+    def filter_executors(self, executors: List[ExecutorInfo] = None, executor_filter: ExecutorFilter = None, filter_func: Callable[[ExecutorInfo], bool] = None) -> List[ExecutorInfo]:
         """
         Filter executors using ExecutorFilter criteria or a custom filter function.
 
+        :param executors: Optional list of executors to filter. If None, uses self.executors_info
         :param executor_filter: ExecutorFilter instance with filtering criteria
         :param filter_func: Optional custom filter function for backward compatibility
         :return: List of filtered ExecutorInfo objects
         """
-        filtered_executors = self.executors_info.copy()
+        filtered_executors = (executors or self.executors_info).copy()
 
         # Apply custom filter function if provided (backward compatibility)
         if filter_func:
