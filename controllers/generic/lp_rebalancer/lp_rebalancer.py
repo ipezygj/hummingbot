@@ -125,6 +125,10 @@ class LPRebalancer(ControllerBase):
         # Track the executor we created
         self._current_executor_id: Optional[str] = None
 
+        # Track initial balances for comparison
+        self._initial_base_balance: Optional[Decimal] = None
+        self._initial_quote_balance: Optional[Decimal] = None
+
         # Initialize rate sources
         self.market_data_provider.initialize_rate_sources([
             ConnectorPair(
@@ -159,6 +163,18 @@ class LPRebalancer(ControllerBase):
 
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """Decide whether to create/stop executors"""
+        # Capture initial balances on first run
+        if self._initial_base_balance is None:
+            try:
+                self._initial_base_balance = self.market_data_provider.get_balance(
+                    self.config.connector_name, self._base_token
+                )
+                self._initial_quote_balance = self.market_data_provider.get_balance(
+                    self.config.connector_name, self._quote_token
+                )
+            except Exception as e:
+                self.logger().debug(f"Could not capture initial balances: {e}")
+
         actions = []
         executor = self.active_executor()
 
@@ -598,6 +614,36 @@ class LPRebalancer(ControllerBase):
                     for viz_line in limits_viz.split('\n'):
                         line = f"| {viz_line}"
                         status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        # Balance comparison (initial vs current)
+        status.append("|" + " " * box_width + "|")
+        try:
+            current_base = self.market_data_provider.get_balance(
+                self.config.connector_name, self._base_token
+            )
+            current_quote = self.market_data_provider.get_balance(
+                self.config.connector_name, self._quote_token
+            )
+
+            line = "| Balances (wallet only, excludes LP position):"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+            if self._initial_base_balance is not None:
+                base_change = current_base - self._initial_base_balance
+                line = f"|   {self._base_token}: {float(self._initial_base_balance):.6f} -> {float(current_base):.6f} ({float(base_change):+.6f})"
+            else:
+                line = f"|   {self._base_token}: {float(current_base):.6f}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+            if self._initial_quote_balance is not None:
+                quote_change = current_quote - self._initial_quote_balance
+                line = f"|   {self._quote_token}: {float(self._initial_quote_balance):.6f} -> {float(current_quote):.6f} ({float(quote_change):+.6f})"
+            else:
+                line = f"|   {self._quote_token}: {float(current_quote):.6f}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+        except Exception as e:
+            line = f"| Balances: Error fetching ({e})"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
 
         # Session summary (closed positions only)
         if self.executors_info:
