@@ -537,12 +537,9 @@ class LPExecutor(ExecutorBase):
         SOL-USD rate to convert values to the global token for consistent
         P&L reporting across different pools.
 
-        Returns Decimal("1") if rate is not available (e.g., already in USD).
+        Returns Decimal("1") if rate is not available.
         """
         _, quote_token = split_hb_trading_pair(self.config.market.trading_pair)
-        # Common USD tokens don't need conversion
-        if quote_token.upper() in ("USD", "USDT", "USDC", "BUSD", "DAI"):
-            return Decimal("1")
 
         try:
             rate = RateOracle.get_instance().get_pair_rate(f"{quote_token}-USD")
