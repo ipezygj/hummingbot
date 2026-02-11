@@ -95,6 +95,15 @@ class ControllerConfigBase(BaseClientModel):
         """
         return markets
 
+    def set_id(self, id_value: str = None):
+        """
+        Set the ID for the controller config. If no ID is provided, generate a unique one.
+        """
+        if id_value is None:
+            from hummingbot.strategy_v2.utils.common import generate_unique_id
+            return generate_unique_id()
+        return id_value
+
     def get_controller_class(self):
         """
         Dynamically load and return the controller class based on the controller configuration.
