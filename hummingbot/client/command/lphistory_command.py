@@ -204,15 +204,25 @@ class LPHistoryCommand:
         total_position_rent_refunded = sum(Decimal(str(u.position_rent_refunded or 0)) for u in closes)
         net_rent = total_position_rent - total_position_rent_refunded
 
-        # Calculate values using current price
-        if current_price > 0:
-            total_open_value = total_open_base * current_price + total_open_quote
-            total_close_value = total_close_base * current_price + total_close_quote
-            total_fees_value = total_fees_base * current_price + total_fees_quote
-        else:
-            total_open_value = total_open_quote
-            total_close_value = total_close_quote
-            total_fees_value = total_fees_quote
+        # Calculate values using stored mid_price from each transaction (for accurate realized P&L)
+        # Each ADD valued at its mid_price, each REMOVE valued at its mid_price
+        total_open_value = Decimal("0")
+        for u in opens:
+            mid_price = Decimal(str(u.mid_price)) if u.mid_price else current_price
+            base_amt = Decimal(str(u.base_amount or 0))
+            quote_amt = Decimal(str(u.quote_amount or 0))
+            total_open_value += base_amt * mid_price + quote_amt
+
+        total_close_value = Decimal("0")
+        total_fees_value = Decimal("0")
+        for u in closes:
+            mid_price = Decimal(str(u.mid_price)) if u.mid_price else current_price
+            base_amt = Decimal(str(u.base_amount or 0))
+            quote_amt = Decimal(str(u.quote_amount or 0))
+            base_fee = Decimal(str(u.base_fee or 0))
+            quote_fee = Decimal(str(u.quote_fee or 0))
+            total_close_value += base_amt * mid_price + quote_amt
+            total_fees_value += base_fee * mid_price + quote_fee
 
         # P&L calculation
         total_returned = total_close_value + total_fees_value
