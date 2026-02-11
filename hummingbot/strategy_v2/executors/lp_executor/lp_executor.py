@@ -531,25 +531,21 @@ class LPExecutor(ExecutorBase):
 
     def _get_quote_to_global_rate(self) -> Decimal:
         """
-        Get conversion rate from pool quote currency to global token (USD).
+        Get conversion rate from pool quote currency to USDT.
 
         For pools like COIN-SOL, the quote is SOL. This method returns the
-        SOL-USD rate to convert values to the global token for consistent
-        P&L reporting across different pools.
+        SOL-USDT rate to convert values to USD for consistent P&L reporting.
 
         Returns Decimal("1") if rate is not available.
         """
         _, quote_token = split_hb_trading_pair(self.config.market.trading_pair)
 
         try:
-            rate = RateOracle.get_instance().get_pair_rate(f"{quote_token}-USD")
+            rate = RateOracle.get_instance().get_pair_rate(f"{quote_token}-USDT")
             if rate is not None and rate > 0:
-                self.logger().info(f"Rate for {quote_token}-USD: {rate}")
                 return rate
-            else:
-                self.logger().info(f"Rate oracle returned {rate} for {quote_token}-USD, using fallback")
         except Exception as e:
-            self.logger().info(f"Could not get rate for {quote_token}-USD: {e}")
+            self.logger().debug(f"Could not get rate for {quote_token}-USDT: {e}")
 
         return Decimal("1")  # Fallback to no conversion
 
