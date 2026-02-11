@@ -27,7 +27,7 @@ class LPExecutorConfig(ExecutorConfigBase):
 
     - Creates position based on config bounds and amounts
     - Monitors position state (IN_RANGE, OUT_OF_RANGE)
-    - Auto-closes after out_of_range_seconds_close if configured
+    - Auto-closes after auto_close_out_of_range_seconds if configured
     - Closes position when executor stops (unless keep_position=True)
     """
     type: Literal["lp_executor"] = "lp_executor"
@@ -49,7 +49,7 @@ class LPExecutorConfig(ExecutorConfigBase):
 
     # Auto-close: close position after being out of range for this many seconds
     # None = no auto-close (controller handles rebalancing)
-    out_of_range_seconds_close: Optional[int] = None
+    auto_close_out_of_range_seconds: Optional[int] = None
 
     # Connector-specific params
     extra_params: Optional[Dict] = None  # e.g., {"strategyType": 0} for Meteora

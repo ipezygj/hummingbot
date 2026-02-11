@@ -41,7 +41,7 @@ class LPExecutor(ExecutorBase):
         strategy: ScriptStrategyBase,
         config: LPExecutorConfig,
         update_interval: float = 1.0,
-        max_retries: int = 3
+        max_retries: int = 10,
     ):
         # Extract connector names from config for ExecutorBase
         connectors = [config.market.connector_name]
@@ -49,8 +49,10 @@ class LPExecutor(ExecutorBase):
         self.config: LPExecutorConfig = config
         self.lp_position_state = LPExecutorState()
         self._pool_info: Optional[Union[CLMMPoolInfo, AMMPoolInfo]] = None
-        self._current_retries = 0
         self._max_retries = max_retries
+        self._current_retries = 0
+        self._max_retries_reached = False  # True when max retries reached, requires intervention
+        self._last_attempted_signature: Optional[str] = None  # Track for retry logging
 
     async def on_start(self):
         """Start executor - will create position in first control_task"""
@@ -78,11 +80,15 @@ class LPExecutor(ExecutorBase):
 
             case LPExecutorStates.OPENING:
                 # Position creation in progress or retrying after failure
-                await self._create_position()
+                if not self._max_retries_reached:
+                    await self._create_position()
+                # If max retries reached, stay in OPENING state waiting for intervention
 
             case LPExecutorStates.CLOSING:
                 # Position close in progress or retrying after failure
-                await self._close_position()
+                if not self._max_retries_reached:
+                    await self._close_position()
+                # If max retries reached, stay in CLOSING state waiting for intervention
 
             case LPExecutorStates.IN_RANGE:
                 # Position active and in range - just monitor
@@ -91,11 +97,11 @@ class LPExecutor(ExecutorBase):
             case LPExecutorStates.OUT_OF_RANGE:
                 # Position active but out of range
                 # Auto-close if configured and duration exceeded
-                if self.config.out_of_range_seconds_close is not None:
+                if self.config.auto_close_out_of_range_seconds is not None:
                     out_of_range_seconds = self.lp_position_state.get_out_of_range_seconds(current_time)
-                    if out_of_range_seconds and out_of_range_seconds >= self.config.out_of_range_seconds_close:
+                    if out_of_range_seconds and out_of_range_seconds >= self.config.auto_close_out_of_range_seconds:
                         self.logger().info(
-                            f"Position out of range for {out_of_range_seconds}s >= {self.config.out_of_range_seconds_close}s, closing"
+                            f"Position out of range for {out_of_range_seconds}s >= {self.config.auto_close_out_of_range_seconds}s, closing"
                         )
                         self.close_type = CloseType.EARLY_STOP
                         self.lp_position_state.state = LPExecutorStates.CLOSING
@@ -140,6 +146,7 @@ class LPExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} confirmed closed on-chain"
                 )
+                self._emit_already_closed_event()
                 self.lp_position_state.state = LPExecutorStates.COMPLETE
                 self.lp_position_state.active_close_order = None
                 return
@@ -263,33 +270,45 @@ class LPExecutor(ExecutorBase):
             self.lp_position_state.update_state(current_price, self._strategy.current_timestamp)
 
         except Exception as e:
-            self._handle_create_failure(order_id, e)
+            # Try to get signature from connector metadata (gateway may have stored it before timeout)
+            sig = None
+            if connector:
+                metadata = connector._lp_orders_metadata.get(order_id, {})
+                sig = metadata.get("signature")
+            self._handle_create_failure(e, signature=sig)
 
-    def _handle_create_failure(self, order_id: str, error: Exception):
+    def _handle_create_failure(self, error: Exception, signature: Optional[str] = None):
         """Handle position creation failure with retry logic."""
         self._current_retries += 1
+        max_retries = self._max_retries
 
         # Check if this is a timeout error (retryable)
         error_str = str(error)
         is_timeout = "TRANSACTION_TIMEOUT" in error_str
 
-        if self._current_retries >= self._max_retries:
-            self.logger().error(
-                f"LP open failed after {self._max_retries} retries: {error}"
+        # Format signature for logging
+        sig_info = f" [sig: {signature}]" if signature else ""
+
+        if self._current_retries >= max_retries:
+            msg = (
+                f"LP OPEN FAILED after {max_retries} retries for {self.config.market.trading_pair}.{sig_info} "
+                f"Manual intervention required. Error: {error}"
             )
-            # Keep state as NOT_ACTIVE (prior state), just mark as failed and stop
-            self.close_type = CloseType.FAILED
-            self._status = RunnableStatus.SHUTTING_DOWN
+            self.logger().error(msg)
+            self._strategy.notify_hb_app_with_timestamp(msg)
+            self._max_retries_reached = True
+            # Keep state as OPENING - don't shut down, wait for user intervention
+            self.lp_position_state.active_open_order = None
             return
 
         if is_timeout:
             self.logger().warning(
-                f"LP open timeout (retry {self._current_retries}/{self._max_retries}). "
+                f"LP open timeout (retry {self._current_retries}/{max_retries}).{sig_info} "
                 "Chain may be congested. Retrying..."
             )
         else:
             self.logger().warning(
-                f"LP open failed (retry {self._current_retries}/{self._max_retries}): {error}"
+                f"LP open failed (retry {self._current_retries}/{max_retries}): {error}"
             )
 
         # Clear open order to allow retry - state stays OPENING
@@ -315,6 +334,7 @@ class LPExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} already closed - skipping close"
                 )
+                self._emit_already_closed_event()
                 self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
         except Exception as e:
@@ -324,6 +344,7 @@ class LPExecutor(ExecutorBase):
                 self.logger().info(
                     f"Position {self.lp_position_state.position_address} already closed - skipping"
                 )
+                self._emit_already_closed_event()
                 self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
             elif "not found" in error_msg:
@@ -331,6 +352,7 @@ class LPExecutor(ExecutorBase):
                     f"Position {self.lp_position_state.position_address} not found - "
                     "marking complete to avoid retry loop"
                 )
+                self._emit_already_closed_event()
                 self.lp_position_state.state = LPExecutorStates.COMPLETE
                 return
             # Other errors - proceed with close attempt
@@ -397,37 +419,88 @@ class LPExecutor(ExecutorBase):
             self._current_retries = 0
 
         except Exception as e:
-            self._handle_close_failure(order_id, e)
+            # Try to get signature from connector metadata (gateway may have stored it before timeout)
+            sig = None
+            if connector:
+                metadata = connector._lp_orders_metadata.get(order_id, {})
+                sig = metadata.get("signature")
+            self._handle_close_failure(e, signature=sig)
 
-    def _handle_close_failure(self, order_id: str, error: Exception):
+    def _handle_close_failure(self, error: Exception, signature: Optional[str] = None):
         """Handle position close failure with retry logic."""
         self._current_retries += 1
+        max_retries = self._max_retries
 
         # Check if this is a timeout error (retryable)
         error_str = str(error)
         is_timeout = "TRANSACTION_TIMEOUT" in error_str
 
-        if self._current_retries >= self._max_retries:
-            self.logger().error(
-                f"LP close failed after {self._max_retries} retries: {error}"
+        # Format signature for logging
+        sig_info = f" [sig: {signature}]" if signature else ""
+
+        if self._current_retries >= max_retries:
+            msg = (
+                f"LP CLOSE FAILED after {max_retries} retries for {self.config.market.trading_pair}.{sig_info} "
+                f"Position {self.lp_position_state.position_address} may need manual close. Error: {error}"
             )
-            # Keep prior state (IN_RANGE/OUT_OF_RANGE), just mark as failed and stop
-            self.close_type = CloseType.FAILED
-            self._status = RunnableStatus.SHUTTING_DOWN
+            self.logger().error(msg)
+            self._strategy.notify_hb_app_with_timestamp(msg)
+            self._max_retries_reached = True
+            # Keep state as CLOSING - don't shut down, wait for user intervention
+            self.lp_position_state.active_close_order = None
             return
 
         if is_timeout:
             self.logger().warning(
-                f"LP close timeout (retry {self._current_retries}/{self._max_retries}). "
+                f"LP close timeout (retry {self._current_retries}/{max_retries}).{sig_info} "
                 "Chain may be congested. Retrying..."
             )
         else:
             self.logger().warning(
-                f"LP close failed (retry {self._current_retries}/{self._max_retries}): {error}"
+                f"LP close failed (retry {self._current_retries}/{max_retries}): {error}"
             )
 
         # Clear active order - state stays CLOSING for retry in next control_task
         self.lp_position_state.active_close_order = None
+
+    def _emit_already_closed_event(self):
+        """
+        Emit a synthetic RangePositionLiquidityRemovedEvent for positions that were
+        closed on-chain but we didn't receive the confirmation (e.g., timeout-but-succeeded).
+        Uses last known position data. This ensures the database is updated.
+        """
+        connector = self.connectors.get(self.config.market.connector_name)
+        if connector is None:
+            return
+
+        # Generate a synthetic order_id for this event
+        order_id = connector.create_market_order_id(TradeType.RANGE, self.config.market.trading_pair)
+        mid_price = (self.lp_position_state.lower_price + self.lp_position_state.upper_price) / Decimal("2")
+
+        self.logger().info(
+            f"Emitting synthetic close event for already-closed position: "
+            f"{self.lp_position_state.position_address}, "
+            f"base: {self.lp_position_state.base_amount}, quote: {self.lp_position_state.quote_amount}, "
+            f"fees: {self.lp_position_state.base_fee} base / {self.lp_position_state.quote_fee} quote"
+        )
+
+        connector._trigger_remove_liquidity_event(
+            order_id=order_id,
+            exchange_order_id="already-closed",
+            trading_pair=self.config.market.trading_pair,
+            token_id="0",
+            creation_timestamp=self._strategy.current_timestamp,
+            trade_fee=AddedToCostTradeFee(),
+            position_address=self.lp_position_state.position_address,
+            lower_price=self.lp_position_state.lower_price,
+            upper_price=self.lp_position_state.upper_price,
+            mid_price=mid_price,
+            base_amount=self.lp_position_state.base_amount,
+            quote_amount=self.lp_position_state.quote_amount,
+            base_fee=self.lp_position_state.base_fee,
+            quote_fee=self.lp_position_state.quote_fee,
+            position_rent_refunded=self.lp_position_state.position_rent,
+        )
 
     def early_stop(self, keep_position: bool = False):
         """Stop executor - transitions to CLOSING state, control_task handles the close"""
@@ -492,6 +565,7 @@ class LPExecutor(ExecutorBase):
             "position_rent": float(self.lp_position_state.position_rent),
             "position_rent_refunded": float(self.lp_position_state.position_rent_refunded),
             "out_of_range_seconds": self.lp_position_state.get_out_of_range_seconds(current_time),
+            "max_retries_reached": self._max_retries_reached,
         }
 
     # Required abstract methods from ExecutorBase

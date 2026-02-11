@@ -234,17 +234,18 @@ class LPHistoryCommand:
         both_positions = [(o, c) for o, c in zip(opens, closes)
                           if (o, c) not in buy_positions and (o, c) not in sell_positions]
 
-        pos_columns = ["", "buy", "sell", "both"]
+        # Column order matches side values: both(0), buy(1), sell(2)
+        pos_columns = ["", "both", "buy", "sell"]
         pos_data = [
-            [f"{'Number of positions':<27}", len(buy_positions), len(sell_positions), len(both_positions)],
+            [f"{'Number of positions':<27}", len(both_positions), len(buy_positions), len(sell_positions)],
             [f"{f'Total volume ({base})':<27}",
+             smart_round(sum(Decimal(str(o.base_amount or 0)) + Decimal(str(c.base_amount or 0)) for o, c in both_positions), precision),
              smart_round(sum(Decimal(str(o.base_amount or 0)) + Decimal(str(c.base_amount or 0)) for o, c in buy_positions), precision),
-             smart_round(sum(Decimal(str(o.base_amount or 0)) + Decimal(str(c.base_amount or 0)) for o, c in sell_positions), precision),
-             smart_round(sum(Decimal(str(o.base_amount or 0)) + Decimal(str(c.base_amount or 0)) for o, c in both_positions), precision)],
+             smart_round(sum(Decimal(str(o.base_amount or 0)) + Decimal(str(c.base_amount or 0)) for o, c in sell_positions), precision)],
             [f"{f'Total volume ({quote})':<27}",
+             smart_round(sum(Decimal(str(o.quote_amount or 0)) + Decimal(str(c.quote_amount or 0)) for o, c in both_positions), precision),
              smart_round(sum(Decimal(str(o.quote_amount or 0)) + Decimal(str(c.quote_amount or 0)) for o, c in buy_positions), precision),
-             smart_round(sum(Decimal(str(o.quote_amount or 0)) + Decimal(str(c.quote_amount or 0)) for o, c in sell_positions), precision),
-             smart_round(sum(Decimal(str(o.quote_amount or 0)) + Decimal(str(c.quote_amount or 0)) for o, c in both_positions), precision)],
+             smart_round(sum(Decimal(str(o.quote_amount or 0)) + Decimal(str(c.quote_amount or 0)) for o, c in sell_positions), precision)],
         ]
         pos_df = pd.DataFrame(data=pos_data, columns=pos_columns)
         lines.extend(["", "  Closed Positions:"] + ["    " + line for line in pos_df.to_string(index=False).split("\n")])

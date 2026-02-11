@@ -1,0 +1,708 @@
+import logging
+from decimal import Decimal
+from typing import List, Optional
+
+from pydantic import Field, field_validator, model_validator
+
+from hummingbot.core.data_type.common import MarketDict
+from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
+from hummingbot.logger import HummingbotLogger
+from hummingbot.strategy_v2.controllers import ControllerBase, ControllerConfigBase
+from hummingbot.strategy_v2.executors.data_types import ConnectorPair
+from hummingbot.strategy_v2.executors.lp_executor.data_types import LPExecutorConfig, LPExecutorStates
+from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
+from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
+
+
+class LPRebalancerConfig(ControllerConfigBase):
+    """
+    Configuration for LP Rebalancer Controller.
+
+    Uses total_amount_quote and side for position sizing.
+    Implements KEEP vs REBALANCE logic based on price limits.
+    """
+    controller_type: str = "generic"
+    controller_name: str = "lp_rebalancer"
+    candles_config: List[CandlesConfig] = []
+
+    # Pool configuration (required)
+    connector_name: str = "meteora/clmm"
+    network: str = "solana-mainnet-beta"
+    trading_pair: str = ""
+    pool_address: str = ""
+
+    # Position parameters
+    total_amount_quote: Decimal = Field(default=Decimal("50"), json_schema_extra={"is_updatable": True})
+    side: int = Field(default=1, json_schema_extra={"is_updatable": True})  # 0=BOTH, 1=BUY, 2=SELL
+    position_width_pct: Decimal = Field(default=Decimal("0.5"), json_schema_extra={"is_updatable": True})
+
+    # Rebalancing
+    rebalance_seconds: int = Field(default=60, json_schema_extra={"is_updatable": True})
+
+    # Price limits - overlapping grids for sell and buy ranges
+    # Sell range: [sell_price_min, sell_price_max]
+    # Buy range: [buy_price_min, buy_price_max]
+    sell_price_max: Optional[Decimal] = Field(default=None, json_schema_extra={"is_updatable": True})
+    sell_price_min: Optional[Decimal] = Field(default=None, json_schema_extra={"is_updatable": True})
+    buy_price_max: Optional[Decimal] = Field(default=None, json_schema_extra={"is_updatable": True})
+    buy_price_min: Optional[Decimal] = Field(default=None, json_schema_extra={"is_updatable": True})
+
+    # Connector-specific params (optional)
+    strategy_type: Optional[int] = Field(default=None, json_schema_extra={"is_updatable": True})
+
+    @field_validator("sell_price_min", "sell_price_max", "buy_price_min", "buy_price_max", mode="before")
+    @classmethod
+    def validate_price_limits(cls, v):
+        """Allow null/None values for price limits."""
+        if v is None:
+            return None
+        return Decimal(str(v))
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def validate_side(cls, v):
+        """Validate side is 0, 1, or 2."""
+        v = int(v)
+        if v not in (0, 1, 2):
+            raise ValueError("side must be 0 (BOTH), 1 (BUY), or 2 (SELL)")
+        return v
+
+    @model_validator(mode="after")
+    def validate_price_limit_ranges(self):
+        """Validate that price limit ranges are valid."""
+        if self.buy_price_max is not None and self.buy_price_min is not None:
+            if self.buy_price_max < self.buy_price_min:
+                raise ValueError("buy_price_max must be >= buy_price_min")
+        if self.sell_price_max is not None and self.sell_price_min is not None:
+            if self.sell_price_max < self.sell_price_min:
+                raise ValueError("sell_price_max must be >= sell_price_min")
+        return self
+
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        """Register the LP connector with trading pair"""
+        return markets.add_or_update(self.connector_name, self.trading_pair)
+
+
+class LPRebalancer(ControllerBase):
+    """
+    Controller for LP position management with smart rebalancing.
+
+    Key features:
+    - Uses total_amount_quote for all positions (initial and rebalance)
+    - Derives rebalance side from price vs last executor's range
+    - KEEP position when already at limit, REBALANCE when not
+    - Validates bounds before creating positions
+    """
+
+    _logger: Optional[HummingbotLogger] = None
+    # Tolerance for float comparison in at_limit checks
+    PRICE_TOLERANCE = Decimal("1e-9")
+
+    @classmethod
+    def logger(cls) -> HummingbotLogger:
+        if cls._logger is None:
+            cls._logger = logging.getLogger(__name__)
+        return cls._logger
+
+    def __init__(self, config: LPRebalancerConfig, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+        self.config: LPRebalancerConfig = config
+
+        # Parse token symbols from trading pair
+        parts = config.trading_pair.split("-")
+        self._base_token: str = parts[0] if len(parts) >= 2 else ""
+        self._quote_token: str = parts[1] if len(parts) >= 2 else ""
+
+        # Rebalance tracking
+        self._pending_rebalance: bool = False
+        self._pending_rebalance_side: Optional[int] = None  # Side for pending rebalance
+
+        # Track the executor we created
+        self._current_executor_id: Optional[str] = None
+
+        # Initialize rate sources
+        self.market_data_provider.initialize_rate_sources([
+            ConnectorPair(
+                connector_name=self.config.connector_name,
+                trading_pair=self.config.trading_pair
+            )
+        ])
+
+    def active_executor(self) -> Optional[ExecutorInfo]:
+        """Get current active executor (should be 0 or 1)"""
+        active = [e for e in self.executors_info if e.is_active]
+        return active[0] if active else None
+
+    def get_tracked_executor(self) -> Optional[ExecutorInfo]:
+        """Get the executor we're currently tracking (by ID)"""
+        if not self._current_executor_id:
+            return None
+        for e in self.executors_info:
+            if e.id == self._current_executor_id:
+                return e
+        return None
+
+    def is_tracked_executor_terminated(self) -> bool:
+        """Check if the executor we created has terminated"""
+        from hummingbot.strategy_v2.models.base import RunnableStatus
+        if not self._current_executor_id:
+            return True
+        executor = self.get_tracked_executor()
+        if executor is None:
+            return True
+        return executor.status == RunnableStatus.TERMINATED
+
+    def determine_executor_actions(self) -> List[ExecutorAction]:
+        """Decide whether to create/stop executors"""
+        actions = []
+        executor = self.active_executor()
+
+        # Track the active executor's ID if we don't have one yet
+        if executor and not self._current_executor_id:
+            self._current_executor_id = executor.id
+            self.logger().info(f"Tracking executor: {executor.id}")
+
+        # No active executor - check if we should create one
+        if executor is None:
+            if not self.is_tracked_executor_terminated():
+                tracked = self.get_tracked_executor()
+                self.logger().debug(
+                    f"Waiting for executor {self._current_executor_id} to terminate "
+                    f"(status: {tracked.status if tracked else 'not found'})"
+                )
+                return actions
+
+            # Previous executor terminated, clear tracking
+            self._current_executor_id = None
+
+            # Determine side for new position
+            if self._pending_rebalance and self._pending_rebalance_side is not None:
+                side = self._pending_rebalance_side
+                self._pending_rebalance = False
+                self._pending_rebalance_side = None
+                self.logger().info(f"Creating rebalance position with side={side}")
+            else:
+                side = self.config.side
+                self.logger().info(f"Creating initial position with side={side}")
+
+            # Create executor config with calculated bounds
+            executor_config = self._create_executor_config(side)
+            if executor_config is None:
+                self.logger().warning("Skipping position creation - invalid bounds")
+                return actions
+
+            actions.append(CreateExecutorAction(
+                controller_id=self.config.id,
+                executor_config=executor_config
+            ))
+            return actions
+
+        # Check executor state
+        state = executor.custom_info.get("state")
+
+        # Don't take action while executor is in transition states
+        if state in [LPExecutorStates.OPENING.value, LPExecutorStates.CLOSING.value]:
+            return actions
+
+        # Check for rebalancing when out of range
+        if state == LPExecutorStates.OUT_OF_RANGE.value:
+            out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
+            if out_of_range_seconds is not None and out_of_range_seconds >= self.config.rebalance_seconds:
+                rebalance_action = self._handle_rebalance(executor)
+                if rebalance_action:
+                    actions.append(rebalance_action)
+
+        return actions
+
+    def _handle_rebalance(self, executor: ExecutorInfo) -> Optional[StopExecutorAction]:
+        """
+        Handle rebalancing logic.
+
+        Returns StopExecutorAction if rebalance needed, None if KEEP.
+        """
+        current_price = executor.custom_info.get("current_price")
+        lower_price = executor.custom_info.get("lower_price")
+        upper_price = executor.custom_info.get("upper_price")
+
+        if current_price is None or lower_price is None or upper_price is None:
+            return None
+
+        current_price = Decimal(str(current_price))
+        lower_price = Decimal(str(lower_price))
+        upper_price = Decimal(str(upper_price))
+
+        # Step 1: Determine side from price direction (using [lower, upper) convention)
+        if current_price >= upper_price:
+            new_side = 1  # BUY - price at or above range
+        elif current_price < lower_price:
+            new_side = 2  # SELL - price below range
+        else:
+            # Price is in range, shouldn't happen in OUT_OF_RANGE state
+            self.logger().warning(f"Price {current_price} appears in range [{lower_price}, {upper_price})")
+            return None
+
+        # Step 2: Check if already at limit
+        at_limit = self._is_at_limit(new_side, lower_price, upper_price)
+
+        if at_limit:
+            self.logger().info(
+                f"KEEP position - already at limit (side={new_side}, "
+                f"bounds=[{lower_price}, {upper_price}])"
+            )
+            return None
+
+        # Step 3: Check if new position would be valid
+        if not self._is_price_within_limits(current_price, new_side):
+            side_name = "SELL" if new_side == 2 else "BUY"
+            self.logger().info(f"Price {current_price} outside {side_name} limits, keeping position")
+            return None
+
+        # Step 4: Initiate rebalance
+        self._pending_rebalance = True
+        self._pending_rebalance_side = new_side
+        self.logger().info(
+            f"REBALANCE initiated (side={new_side}, price={current_price}, "
+            f"old_bounds=[{lower_price}, {upper_price}])"
+        )
+
+        return StopExecutorAction(
+            controller_id=self.config.id,
+            executor_id=executor.id,
+            keep_position=False,
+        )
+
+    def _is_at_limit(self, side: int, lower_price: Decimal, upper_price: Decimal) -> bool:
+        """
+        Check if position is already at the limit for the given side.
+
+        For BUY (side=1): check if upper == buy_price_max
+        For SELL (side=2): check if lower == sell_price_min
+        """
+        if side == 1:  # BUY
+            if self.config.buy_price_max is None:
+                return False  # No limit = never at limit
+            return abs(upper_price - self.config.buy_price_max) < self.PRICE_TOLERANCE
+        elif side == 2:  # SELL
+            if self.config.sell_price_min is None:
+                return False  # No limit = never at limit
+            return abs(lower_price - self.config.sell_price_min) < self.PRICE_TOLERANCE
+        return False
+
+    def _create_executor_config(self, side: int) -> Optional[LPExecutorConfig]:
+        """
+        Create executor config for the given side.
+
+        Returns None if bounds are invalid.
+        """
+        current_price = self.market_data_provider.get_rate(self.config.trading_pair)
+        if current_price is None:
+            self.logger().warning("No price available")
+            return None
+
+        # Calculate amounts based on side
+        base_amt, quote_amt = self._calculate_amounts(side, current_price)
+
+        # Calculate bounds
+        lower_price, upper_price = self._calculate_price_bounds(side, current_price)
+
+        # Validate bounds
+        if lower_price >= upper_price:
+            self.logger().warning(f"Invalid bounds [{lower_price}, {upper_price}] - skipping position")
+            return None
+
+        # Build extra params (connector-specific)
+        extra_params = {}
+        if self.config.strategy_type is not None:
+            extra_params["strategyType"] = self.config.strategy_type
+
+        self.logger().info(
+            f"Creating position: side={side}, bounds=[{lower_price}, {upper_price}], "
+            f"base={base_amt}, quote={quote_amt}"
+        )
+
+        return LPExecutorConfig(
+            timestamp=self.market_data_provider.time(),
+            market=ConnectorPair(
+                connector_name=self.config.connector_name,
+                trading_pair=self.config.trading_pair,
+            ),
+            pool_address=self.config.pool_address,
+            lower_price=lower_price,
+            upper_price=upper_price,
+            base_amount=base_amt,
+            quote_amount=quote_amt,
+            side=side,
+            extra_params=extra_params if extra_params else None,
+            keep_position=False,
+        )
+
+    def _calculate_amounts(self, side: int, current_price: Decimal) -> tuple:
+        """
+        Calculate base and quote amounts based on side and total_amount_quote.
+
+        Side 0 (BOTH): split 50/50
+        Side 1 (BUY): all quote
+        Side 2 (SELL): all base
+        """
+        total = self.config.total_amount_quote
+
+        if side == 0:  # BOTH
+            quote_amt = total / Decimal("2")
+            base_amt = quote_amt / current_price
+        elif side == 1:  # BUY
+            base_amt = Decimal("0")
+            quote_amt = total
+        else:  # SELL
+            base_amt = total / current_price
+            quote_amt = Decimal("0")
+
+        return base_amt, quote_amt
+
+    def _calculate_price_bounds(self, side: int, current_price: Decimal) -> tuple:
+        """
+        Calculate position bounds based on side and price limits.
+
+        Side 0 (BOTH): centered on current price, clamped to [buy_min, sell_max]
+        Side 1 (BUY): upper = min(price, buy_max), extends width below
+        Side 2 (SELL): lower = max(price, sell_min), extends width above
+        """
+        width = self.config.position_width_pct / Decimal("100")
+
+        if side == 0:  # BOTH
+            half_width = width / Decimal("2")
+            lower_price = current_price * (Decimal("1") - half_width)
+            upper_price = current_price * (Decimal("1") + half_width)
+            # Clamp to limits
+            if self.config.buy_price_min:
+                lower_price = max(lower_price, self.config.buy_price_min)
+            if self.config.sell_price_max:
+                upper_price = min(upper_price, self.config.sell_price_max)
+
+        elif side == 1:  # BUY
+            # Anchor at min(current_price, buy_price_max), extend below
+            if self.config.buy_price_max:
+                upper_price = min(current_price, self.config.buy_price_max)
+            else:
+                upper_price = current_price
+            lower_price = upper_price * (Decimal("1") - width)
+            # Clamp lower to floor
+            if self.config.buy_price_min:
+                lower_price = max(lower_price, self.config.buy_price_min)
+
+        else:  # SELL
+            # Anchor at max(current_price, sell_price_min), extend above
+            if self.config.sell_price_min:
+                lower_price = max(current_price, self.config.sell_price_min)
+            else:
+                lower_price = current_price
+            upper_price = lower_price * (Decimal("1") + width)
+            # Clamp upper to ceiling
+            if self.config.sell_price_max:
+                upper_price = min(upper_price, self.config.sell_price_max)
+
+        return lower_price, upper_price
+
+    def _is_price_within_limits(self, price: Decimal, side: int) -> bool:
+        """
+        Check if price is within configured limits for the position type.
+
+        For rebalancing, we only check the "far" limit:
+        - BUY: price must be >= buy_price_min (floor)
+          When price > buy_price_max, we anchor at buy_price_max (valid)
+        - SELL: price must be <= sell_price_max (ceiling)
+          When price < sell_price_min, we anchor at sell_price_min (valid)
+        - BOTH: both constraints apply
+        """
+        if side == 2:  # SELL
+            # Only check ceiling - when below sell_price_min, we anchor there
+            if self.config.sell_price_max and price > self.config.sell_price_max:
+                return False
+        elif side == 1:  # BUY
+            # Only check floor - when above buy_price_max, we anchor there
+            if self.config.buy_price_min and price < self.config.buy_price_min:
+                return False
+        else:  # BOTH
+            if self.config.buy_price_min and price < self.config.buy_price_min:
+                return False
+            if self.config.sell_price_max and price > self.config.sell_price_max:
+                return False
+        return True
+
+    async def update_processed_data(self):
+        """Called every tick - no-op since config provides all needed data"""
+        pass
+
+    def to_format_status(self) -> List[str]:
+        """Format status for display."""
+        status = []
+        box_width = 100
+
+        # Header
+        status.append("+" + "-" * box_width + "+")
+        header = f"| LP Rebalancer: {self.config.trading_pair} on {self.config.connector_name}"
+        status.append(header + " " * (box_width - len(header) + 1) + "|")
+        status.append("+" + "-" * box_width + "+")
+
+        # Network, connector, pool
+        line = f"| Network: {self.config.network}"
+        status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        line = f"| Pool: {self.config.pool_address}"
+        status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        # Config summary
+        side_names = {0: "BOTH", 1: "BUY", 2: "SELL"}
+        line = f"| Config: side={side_names.get(self.config.side, '?')}, total={self.config.total_amount_quote} {self._quote_token}, width={self.config.position_width_pct}%"
+        status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        # Position info from current executor (active or transitioning)
+        executor = self.active_executor() or self.get_tracked_executor()
+        if executor and not executor.is_done:
+            position_address = executor.custom_info.get("position_address", "N/A")
+            line = f"| Position: {position_address}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+            # Position range visualization
+            lower_price = executor.custom_info.get("lower_price")
+            upper_price = executor.custom_info.get("upper_price")
+            current_price = executor.custom_info.get("current_price")
+
+            if lower_price and upper_price and current_price:
+                state = executor.custom_info.get("state", "UNKNOWN")
+                state_icons = {
+                    "IN_RANGE": "●",
+                    "OUT_OF_RANGE": "○",
+                    "OPENING": "◐",
+                    "CLOSING": "◑",
+                    "COMPLETE": "◌",
+                    "NOT_ACTIVE": "○",
+                }
+                state_icon = state_icons.get(state, "?")
+
+                status.append("|" + " " * box_width + "|")
+                line = f"| Range: [{state_icon} {state}]"
+                status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+                range_viz = self._create_price_range_visualization(
+                    Decimal(str(lower_price)),
+                    Decimal(str(current_price)),
+                    Decimal(str(upper_price))
+                )
+                for viz_line in range_viz.split('\n'):
+                    line = f"| {viz_line}"
+                    status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+                # Show rebalance timer if out of range
+                out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
+                if out_of_range_seconds is not None:
+                    line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
+                    status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+            # Show totals
+            custom = executor.custom_info
+            total_fees_quote = Decimal(str(custom.get("fees_earned_quote", 0)))
+            total_value_quote = Decimal(str(custom.get("total_value_quote", 0)))
+
+            status.append("|" + " " * box_width + "|")
+            line = f"| Fees: {float(total_fees_quote):.6f} {self._quote_token}  |  Value: {float(total_value_quote):.4f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        # Price limits visualization
+        has_limits = any([
+            self.config.sell_price_min, self.config.sell_price_max,
+            self.config.buy_price_min, self.config.buy_price_max
+        ])
+        if has_limits:
+            current_price_rate = self.market_data_provider.get_rate(self.config.trading_pair)
+            if current_price_rate:
+                # Get position bounds if available
+                pos_lower = None
+                pos_upper = None
+                if executor:
+                    pos_lower = executor.custom_info.get("lower_price")
+                    pos_upper = executor.custom_info.get("upper_price")
+                    if pos_lower:
+                        pos_lower = Decimal(str(pos_lower))
+                    if pos_upper:
+                        pos_upper = Decimal(str(pos_upper))
+
+                status.append("|" + " " * box_width + "|")
+                limits_viz = self._create_price_limits_visualization(
+                    current_price_rate, pos_lower, pos_upper
+                )
+                if limits_viz:
+                    for viz_line in limits_viz.split('\n'):
+                        line = f"| {viz_line}"
+                        status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        # Session summary (closed positions only)
+        if self.executors_info:
+            status.append("|" + " " * box_width + "|")
+
+            closed = [e for e in self.executors_info if e.is_done]
+            open_count = len(self.executors_info) - len(closed)
+
+            # Count closed by side (config.side: 0=both, 1=buy, 2=sell)
+            both_count = len([e for e in closed if getattr(e.config, "side", None) == 0])
+            buy_count = len([e for e in closed if getattr(e.config, "side", None) == 1])
+            sell_count = len([e for e in closed if getattr(e.config, "side", None) == 2])
+
+            # Calculate totals from closed positions
+            total_add_base = Decimal("0")
+            total_add_quote = Decimal("0")
+            total_fees_base = Decimal("0")
+            total_fees_quote = Decimal("0")
+            total_pnl = Decimal("0")
+
+            current_price = self.market_data_provider.get_rate(self.config.trading_pair) or Decimal("0")
+
+            for e in closed:
+                total_pnl += e.net_pnl_quote
+                total_add_base += Decimal(str(getattr(e.config, "base_amount", 0)))
+                total_add_quote += Decimal(str(getattr(e.config, "quote_amount", 0)))
+                total_fees_base += Decimal(str(e.custom_info.get("base_fee", 0)))
+                total_fees_quote += Decimal(str(e.custom_info.get("quote_fee", 0)))
+
+            total_fees_value = total_fees_base * current_price + total_fees_quote
+
+            # Compact summary
+            line = f"| Closed: {len(closed)} (both:{both_count} buy:{buy_count} sell:{sell_count})  |  Open: {open_count}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+            line = f"| Fees: {float(total_fees_base):.6f} {self._base_token} + {float(total_fees_quote):.6f} {self._quote_token} = {float(total_fees_value):.6f} {self._quote_token}  |  P&L: {float(total_pnl):+.6f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
+        status.append("+" + "-" * box_width + "+")
+        return status
+
+    def _create_price_range_visualization(self, lower_price: Decimal, current_price: Decimal,
+                                          upper_price: Decimal) -> str:
+        """Create visual representation of price range with current price marker"""
+        price_range = upper_price - lower_price
+        if price_range == 0:
+            return f"[{float(lower_price):.6f}] (zero width)"
+
+        current_position = (current_price - lower_price) / price_range
+        bar_width = 50
+        current_pos = int(current_position * bar_width)
+
+        range_bar = ['─'] * bar_width
+        range_bar[0] = '├'
+        range_bar[-1] = '┤'
+
+        if current_pos < 0:
+            marker_line = '● ' + ''.join(range_bar)
+        elif current_pos >= bar_width:
+            marker_line = ''.join(range_bar) + ' ●'
+        else:
+            range_bar[current_pos] = '●'
+            marker_line = ''.join(range_bar)
+
+        viz_lines = []
+        viz_lines.append(marker_line)
+        lower_str = f'{float(lower_price):.6f}'
+        upper_str = f'{float(upper_price):.6f}'
+        viz_lines.append(lower_str + ' ' * (bar_width - len(lower_str) - len(upper_str)) + upper_str)
+
+        return '\n'.join(viz_lines)
+
+    def _create_price_limits_visualization(
+        self,
+        current_price: Decimal,
+        pos_lower: Optional[Decimal] = None,
+        pos_upper: Optional[Decimal] = None
+    ) -> Optional[str]:
+        """Create visualization of sell/buy price limits on unified scale."""
+        viz_lines = []
+
+        bar_width = 50
+
+        # Collect all price points to determine unified scale
+        prices = [current_price]
+        if self.config.sell_price_min:
+            prices.append(self.config.sell_price_min)
+        if self.config.sell_price_max:
+            prices.append(self.config.sell_price_max)
+        if self.config.buy_price_min:
+            prices.append(self.config.buy_price_min)
+        if self.config.buy_price_max:
+            prices.append(self.config.buy_price_max)
+        if pos_lower:
+            prices.append(pos_lower)
+        if pos_upper:
+            prices.append(pos_upper)
+
+        scale_min = min(prices)
+        scale_max = max(prices)
+        scale_range = scale_max - scale_min
+
+        if scale_range <= 0:
+            return None
+
+        def pos_to_idx(price: Decimal) -> int:
+            return int((price - scale_min) / scale_range * (bar_width - 1))
+
+        # Helper to create a range bar on unified scale
+        def make_range_bar(range_min: Optional[Decimal], range_max: Optional[Decimal],
+                           label: str, fill_char: str = '═') -> str:
+            if range_min is None or range_max is None:
+                return ""
+
+            bar = [' '] * bar_width
+            start_idx = max(0, pos_to_idx(range_min))
+            end_idx = min(bar_width - 1, pos_to_idx(range_max))
+
+            # Fill the range
+            for i in range(start_idx, end_idx + 1):
+                bar[i] = fill_char
+            # Mark boundaries
+            if 0 <= start_idx < bar_width:
+                bar[start_idx] = '['
+            if 0 <= end_idx < bar_width:
+                bar[end_idx] = ']'
+
+            return f"  {label}: {''.join(bar)}"
+
+        # Build visualization
+        viz_lines.append("Price Limits:")
+
+        # Sell range
+        if self.config.sell_price_min and self.config.sell_price_max:
+            label = f"Sell [{float(self.config.sell_price_min):.2f}-{float(self.config.sell_price_max):.2f}]"
+            viz_lines.append(make_range_bar(
+                self.config.sell_price_min, self.config.sell_price_max, label, '═'
+            ))
+        else:
+            viz_lines.append("  Sell: No limits set")
+
+        # Buy range
+        if self.config.buy_price_min and self.config.buy_price_max:
+            label = f"Buy  [{float(self.config.buy_price_min):.2f}-{float(self.config.buy_price_max):.2f}]"
+            viz_lines.append(make_range_bar(
+                self.config.buy_price_min, self.config.buy_price_max, label, '─'
+            ))
+        else:
+            viz_lines.append("  Buy : No limits set")
+
+        # Position and price line
+        pos_bar = [' '] * bar_width
+        # Add position bounds
+        if pos_lower:
+            idx = pos_to_idx(pos_lower)
+            if 0 <= idx < bar_width:
+                pos_bar[idx] = '|'
+        if pos_upper:
+            idx = pos_to_idx(pos_upper)
+            if 0 <= idx < bar_width:
+                pos_bar[idx] = '|'
+        # Add current price (overwrites if same position)
+        price_idx = pos_to_idx(current_price)
+        if 0 <= price_idx < bar_width:
+            pos_bar[price_idx] = '●'
+        viz_lines.append(f"  Pos : {''.join(pos_bar)}")
+
+        # Scale line
+        min_str = f'{float(scale_min):.2f}'
+        max_str = f'{float(scale_max):.2f}'
+        viz_lines.append(f"        {min_str}{' ' * (bar_width - len(min_str) - len(max_str))}{max_str}")
+
+        return '\n'.join(viz_lines)
