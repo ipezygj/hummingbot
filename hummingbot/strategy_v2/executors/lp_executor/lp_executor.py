@@ -544,9 +544,12 @@ class LPExecutor(ExecutorBase):
         try:
             rate = RateOracle.get_instance().get_pair_rate(f"{quote_token}-USD")
             if rate is not None and rate > 0:
+                self.logger().debug(f"Rate for {quote_token}-USD: {rate}")
                 return rate
+            else:
+                self.logger().warning(f"Rate oracle returned {rate} for {quote_token}-USD, using fallback")
         except Exception as e:
-            self.logger().debug(f"Could not get rate for {quote_token}-USD: {e}")
+            self.logger().warning(f"Could not get rate for {quote_token}-USD: {e}")
 
         return Decimal("1")  # Fallback to no conversion
 
