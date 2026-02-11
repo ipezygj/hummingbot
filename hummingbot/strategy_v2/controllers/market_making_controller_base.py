@@ -205,18 +205,14 @@ class MarketMakingControllerConfigBase(ControllerConfigBase):
         total_sell_amount_quote = sum(sell_amounts_quote)
         return total_sell_amount_quote / reference_price
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        return markets.add_or_update(self.connector_name, self.trading_pair)
+
 
 class MarketMakingControllerBase(ControllerBase):
     """
     This class represents the base class for a market making controller.
     """
-
-    @classmethod
-    def update_markets(cls, config: ControllerConfigBase, markets: MarketDict) -> MarketDict:
-        """
-        Update markets with the connector and trading pair for this market making controller.
-        """
-        return markets.add_or_update(config.connector_name, config.trading_pair)
 
     def __init__(self, config: MarketMakingControllerConfigBase, *args, **kwargs):
         super().__init__(config, *args, **kwargs)

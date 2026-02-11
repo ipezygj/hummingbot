@@ -94,6 +94,12 @@ class ControllerConfigBase(BaseClientModel):
             return v
         raise ValueError("Invalid type for initial_positions. Expected List[InitialPositionConfig]")
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        """
+        Update the markets dict of the script from the config.
+        """
+        return markets
+
     def get_controller_class(self):
         """
         Dynamically load and return the controller class based on the controller configuration.
@@ -178,17 +184,6 @@ class ControllerBase(RunnableBase):
     )
     """
 
-    @classmethod
-    def update_markets(cls, config: ControllerConfigBase, markets: MarketDict) -> MarketDict:
-        """
-        Update the markets dict with controller-specific markets.
-        Subclasses should override this method to add their markets.
-        
-        :param config: Controller configuration
-        :param markets: Current markets dictionary
-        :return: Updated markets dictionary
-        """
-        return markets
 
     def __init__(self, config: ControllerConfigBase, market_data_provider: MarketDataProvider,
                  actions_queue: asyncio.Queue, update_interval: float = 1.0):
