@@ -48,7 +48,7 @@ class PMMisterConfig(ControllerConfigBase):
     max_active_executors_by_level: Optional[int] = Field(default=1, json_schema_extra={"is_updatable": True})
     tick_mode: bool = Field(default=False, json_schema_extra={"is_updatable": True})
     position_profit_protection: bool = Field(default=False, json_schema_extra={"is_updatable": True})
-    max_skew: Decimal = Field(default=Decimal("0.2"), json_schema_extra={"is_updatable": True})
+    min_skew: Decimal = Field(default=Decimal("0.4"), json_schema_extra={"is_updatable": True})
     global_take_profit: Decimal = Field(default=Decimal("0.03"), json_schema_extra={"is_updatable": True})
     global_stop_loss: Decimal = Field(default=Decimal("0.05"), json_schema_extra={"is_updatable": True})
 
@@ -379,12 +379,12 @@ class PMMister(ControllerBase):
         max_pct = self.config.max_base_pct
         
         if max_pct > min_pct:
-            # Calculate skew factors (0.2 to 1.0) based on position deviation
+            # Calculate skew factors based on position deviation
             buy_skew = (max_pct - current_base_pct) / (max_pct - min_pct)
             sell_skew = (current_base_pct - min_pct) / (max_pct - min_pct)
             # Apply minimum skew to prevent orders from becoming too small
-            buy_skew = max(min(buy_skew, Decimal("1.0")), self.config.max_skew)
-            sell_skew = max(min(sell_skew, Decimal("1.0")), self.config.max_skew)
+            buy_skew = max(min(buy_skew, Decimal("1.0")), self.config.min_skew)
+            sell_skew = max(min(sell_skew, Decimal("1.0")), self.config.min_skew)
         else:
             buy_skew = sell_skew = Decimal("1.0")
 
@@ -541,7 +541,7 @@ class PMMister(ControllerBase):
             f"Current: {base_pct:.2%}",
             f"Target: {target_pct:.2%}",
             f"Min/Max: {min_pct:.2%}/{max_pct:.2%}",
-            f"Skew: {skew_pct:+.2%} (max {self.config.max_skew:.2%})"
+            f"Skew: {skew_pct:+.2%} (min {self.config.min_skew:.2%})"
         ]
 
         # PnL data
