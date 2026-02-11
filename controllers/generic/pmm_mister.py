@@ -264,7 +264,7 @@ class PMMister(ControllerBase):
             current_price = Decimal(self.processed_data["reference_price"])
             
             # Evaluate each condition separately for debugging
-            has_active_not_trading = bool(analysis["active_executors_not_trading"])
+            has_active_not_trading = len(analysis["active_executors_not_trading"]) > 0
             has_too_many_executors = analysis["total_active_executors"] >= self.config.max_active_executors_by_level
             
             # Check cooldown condition
