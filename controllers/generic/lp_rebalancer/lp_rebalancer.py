@@ -462,6 +462,13 @@ class LPRebalancer(ControllerBase):
             line = f"| Position: {position_address}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
 
+            # Show fees and value
+            custom = executor.custom_info
+            total_fees_quote = Decimal(str(custom.get("fees_earned_quote", 0)))
+            total_value_quote = Decimal(str(custom.get("total_value_quote", 0)))
+            line = f"| Fees: {float(total_fees_quote):.6f} {self._quote_token}  |  Value: {float(total_value_quote):.4f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+
             # Position range visualization
             lower_price = executor.custom_info.get("lower_price")
             upper_price = executor.custom_info.get("upper_price")
@@ -480,7 +487,7 @@ class LPRebalancer(ControllerBase):
                 state_icon = state_icons.get(state, "?")
 
                 status.append("|" + " " * box_width + "|")
-                line = f"| Range: [{state_icon} {state}]"
+                line = f"| Position Status: [{state_icon} {state}]"
                 status.append(line + " " * (box_width - len(line) + 1) + "|")
 
                 range_viz = self._create_price_range_visualization(
@@ -497,15 +504,6 @@ class LPRebalancer(ControllerBase):
                 if out_of_range_seconds is not None:
                     line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
-
-            # Show totals
-            custom = executor.custom_info
-            total_fees_quote = Decimal(str(custom.get("fees_earned_quote", 0)))
-            total_value_quote = Decimal(str(custom.get("total_value_quote", 0)))
-
-            status.append("|" + " " * box_width + "|")
-            line = f"| Fees: {float(total_fees_quote):.6f} {self._quote_token}  |  Value: {float(total_value_quote):.4f} {self._quote_token}"
-            status.append(line + " " * (box_width - len(line) + 1) + "|")
 
         # Price limits visualization
         has_limits = any([
@@ -540,7 +538,6 @@ class LPRebalancer(ControllerBase):
             status.append("|" + " " * box_width + "|")
 
             closed = [e for e in self.executors_info if e.is_done]
-            open_count = len(self.executors_info) - len(closed)
 
             # Count closed by side (config.side: 0=both, 1=buy, 2=sell)
             both_count = len([e for e in closed if getattr(e.config, "side", None) == 0])
@@ -576,10 +573,12 @@ class LPRebalancer(ControllerBase):
             inv_change_base = total_remove_base + total_fees_base - total_add_base
             inv_change_quote = total_remove_quote + total_fees_quote - total_add_quote
 
-            # Compact summary
-            line = f"| Closed: {len(closed)} (both:{both_count} buy:{buy_count} sell:{sell_count})  |  Open: {open_count}"
+            # Closed positions summary
+            line = f"| Closed Positions: {len(closed)} (both:{both_count} buy:{buy_count} sell:{sell_count})"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
-            line = f"| Fees: {float(total_fees_base):.6f} {self._base_token} + {float(total_fees_quote):.6f} {self._quote_token} = {float(total_fees_value):.6f} {self._quote_token}  |  P&L: {float(total_pnl):+.6f} {self._quote_token}"
+            line = f"| Fees: {float(total_fees_base):.6f} {self._base_token} + {float(total_fees_quote):.6f} {self._quote_token} = {float(total_fees_value):.6f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+            line = f"| Realized P&L: {float(total_pnl):+.6f} {self._quote_token}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
             line = f"| Inventory: {float(inv_change_base):+.6f} {self._base_token}  {float(inv_change_quote):+.6f} {self._quote_token}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
