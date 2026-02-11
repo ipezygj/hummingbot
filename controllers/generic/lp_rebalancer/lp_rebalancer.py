@@ -615,7 +615,7 @@ class LPRebalancer(ControllerBase):
                         line = f"| {viz_line}"
                         status.append(line + " " * (box_width - len(line) + 1) + "|")
 
-        # Balance comparison (initial vs current)
+        # Balance comparison table (formatted like main balance table)
         status.append("|" + " " * box_width + "|")
         try:
             current_base = self.market_data_provider.get_balance(
@@ -625,21 +625,27 @@ class LPRebalancer(ControllerBase):
                 self.config.connector_name, self._quote_token
             )
 
-            line = "| Balances (wallet only, excludes LP position):"
+            line = "| Balances:"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
 
+            # Table header
+            header = f"|   {'Asset':<12} {'Initial':>14} {'Current':>14} {'Change':>16}"
+            status.append(header + " " * (box_width - len(header) + 1) + "|")
+
+            # Base token row
             if self._initial_base_balance is not None:
                 base_change = current_base - self._initial_base_balance
-                line = f"|   {self._base_token}: {float(self._initial_base_balance):.6f} -> {float(current_base):.6f} ({float(base_change):+.6f})"
+                line = f"|   {self._base_token:<12} {float(self._initial_base_balance):>14.6f} {float(current_base):>14.6f} {float(base_change):>+16.6f}"
             else:
-                line = f"|   {self._base_token}: {float(current_base):.6f}"
+                line = f"|   {self._base_token:<12} {'N/A':>14} {float(current_base):>14.6f} {'N/A':>16}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
 
+            # Quote token row
             if self._initial_quote_balance is not None:
                 quote_change = current_quote - self._initial_quote_balance
-                line = f"|   {self._quote_token}: {float(self._initial_quote_balance):.6f} -> {float(current_quote):.6f} ({float(quote_change):+.6f})"
+                line = f"|   {self._quote_token:<12} {float(self._initial_quote_balance):>14.6f} {float(current_quote):>14.6f} {float(quote_change):>+16.6f}"
             else:
-                line = f"|   {self._quote_token}: {float(current_quote):.6f}"
+                line = f"|   {self._quote_token:<12} {'N/A':>14} {float(current_quote):>14.6f} {'N/A':>16}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
         except Exception as e:
             line = f"| Balances: Error fetching ({e})"
