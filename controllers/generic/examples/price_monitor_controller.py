@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import Field
 
 from hummingbot.core.data_type.common import MarketDict
@@ -70,7 +71,7 @@ class PriceMonitorController(ControllerBase):
         # This controller is for monitoring only, no trading actions
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> List[str]:
         lines = []
         lines.extend(["", f"PRICE MONITOR - {self.config.trading_pair}"])
         lines.extend(["=" * 60])
@@ -114,4 +115,4 @@ class PriceMonitorController(ControllerBase):
         time_until_next_log = max(0, next_log_time - self.market_data_provider.time())
         lines.extend([f"\nNext price log in: {time_until_next_log:.0f} seconds"])
         
-        return "\n".join(lines)
+        return lines

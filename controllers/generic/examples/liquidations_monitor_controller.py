@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import Field
 
 from hummingbot.client.ui.interface_utils import format_df_for_printout
@@ -58,7 +59,7 @@ class LiquidationsMonitorController(ControllerBase):
         # This controller is for monitoring only, no trading actions
         return []
 
-    def to_format_status(self) -> str:
+    def to_format_status(self) -> List[str]:
         lines = []
         lines.extend(["", "LIQUIDATIONS MONITOR"])
         lines.extend(["=" * 50])
@@ -83,7 +84,7 @@ class LiquidationsMonitorController(ControllerBase):
             except Exception as e:
                 lines.append(f"Error displaying liquidations data: {e}")
 
-        return "\n".join(lines)
+        return lines
 
     async def stop(self):
         """Clean shutdown of the liquidations feed"""

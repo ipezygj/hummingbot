@@ -95,9 +95,9 @@ class VolatilityScreenerController(ControllerBase):
         # This controller is for screening/monitoring only, no trading actions
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> List[str]:
         if not hasattr(self, 'processed_data') or not self.processed_data:
-            return "Volatility Screener initializing..."
+            return ["Volatility Screener initializing..."]
         
         if self.processed_data["all_candles_ready"]:
             lines = []
@@ -120,7 +120,7 @@ class VolatilityScreenerController(ControllerBase):
                 time_until_next = max(0, self.last_time_reported + self.config.report_interval - self.market_data_provider.time())
                 lines.extend([f"\nNext report in: {time_until_next / 3600:.1f} hours"])
             
-            return "\n".join(lines)
+            return lines
         else:
             lines = ["Candles not ready yet!"]
             for trading_pair_interval, status in self.processed_data["candles_status"].items():
@@ -128,7 +128,7 @@ class VolatilityScreenerController(ControllerBase):
                     lines.append(f"  {trading_pair_interval}: Missing {status['missing_records']} records")
                 else:
                     lines.append(f"  {trading_pair_interval}: Ready ✅")
-            return "\n".join(lines)
+            return lines
 
     def get_formatted_market_analysis(self):
         volatility_metrics_df = self.get_market_analysis()

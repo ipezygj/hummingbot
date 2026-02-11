@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import Field
 
 from hummingbot.core.data_type.common import MarketDict
@@ -46,9 +47,9 @@ class MarketStatusController(ControllerBase):
         # This controller is for monitoring only, no trading actions
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> List[str]:
         if not self.ready_to_trade:
-            return "Market connectors are not ready."
+            return ["Market connectors are not ready."]
         
         lines = []
         lines.extend(["", "  Market Status Data Frame:"])
@@ -59,7 +60,7 @@ class MarketStatusController(ControllerBase):
         except Exception as e:
             lines.extend([f"    Error: {str(e)}"])
         
-        return "\n".join(lines)
+        return lines
 
     def get_market_status_df_with_depth(self):
         market_status_df = self.market_status_data_frame(self.get_market_trading_pair_tuples())
