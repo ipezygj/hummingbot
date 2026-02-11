@@ -406,23 +406,31 @@ class LPRebalancer(ControllerBase):
         """
         Check if price is within configured limits for the position type.
 
-        For rebalancing, we only check the "far" limit:
-        - BUY: price must be >= buy_price_min (floor)
-          When price > buy_price_max, we anchor at buy_price_max (valid)
-        - SELL: price must be <= sell_price_max (ceiling)
-          When price < sell_price_min, we anchor at sell_price_min (valid)
-        - BOTH: both constraints apply
+        Price must be within the range to create a position that's IN_RANGE:
+        - BUY: price must be within [buy_price_min, buy_price_max]
+        - SELL: price must be within [sell_price_min, sell_price_max]
+        - BOTH: price must be within the intersection of both ranges
+
+        If price is outside the range, the position would be immediately OUT_OF_RANGE.
         """
         if side == 2:  # SELL
-            # Only check ceiling - when below sell_price_min, we anchor there
+            if self.config.sell_price_min and price < self.config.sell_price_min:
+                return False
             if self.config.sell_price_max and price > self.config.sell_price_max:
                 return False
         elif side == 1:  # BUY
-            # Only check floor - when above buy_price_max, we anchor there
             if self.config.buy_price_min and price < self.config.buy_price_min:
                 return False
-        else:  # BOTH
+            if self.config.buy_price_max and price > self.config.buy_price_max:
+                return False
+        else:  # BOTH - must be within intersection of ranges
+            # Check buy range
             if self.config.buy_price_min and price < self.config.buy_price_min:
+                return False
+            if self.config.buy_price_max and price > self.config.buy_price_max:
+                return False
+            # Check sell range
+            if self.config.sell_price_min and price < self.config.sell_price_min:
                 return False
             if self.config.sell_price_max and price > self.config.sell_price_max:
                 return False
@@ -653,9 +661,12 @@ class LPRebalancer(ControllerBase):
         def pos_to_idx(price: Decimal) -> int:
             return int((price - scale_min) / scale_range * (bar_width - 1))
 
-        # Helper to create a range bar on unified scale
+        # Get position marker index
+        price_idx = pos_to_idx(current_price)
+
+        # Helper to create a range bar on unified scale with position marker
         def make_range_bar(range_min: Optional[Decimal], range_max: Optional[Decimal],
-                           label: str, fill_char: str = '═') -> str:
+                           label: str, fill_char: str = '═', show_position: bool = False) -> str:
             if range_min is None or range_max is None:
                 return ""
 
@@ -672,49 +683,44 @@ class LPRebalancer(ControllerBase):
             if 0 <= end_idx < bar_width:
                 bar[end_idx] = ']'
 
+            # Add position marker if requested
+            if show_position and 0 <= price_idx < bar_width:
+                bar[price_idx] = '●'
+
             return f"  {label}: {''.join(bar)}"
 
-        # Build visualization
+        # Build visualization with aligned bars
         viz_lines.append("Price Limits:")
 
-        # Sell range
+        # Create labels with price ranges
+        sell_label = f"Sell [{float(self.config.sell_price_min):.2f}-{float(self.config.sell_price_max):.2f}]" if self.config.sell_price_min and self.config.sell_price_max else "Sell"
+        buy_label = f"Buy  [{float(self.config.buy_price_min):.2f}-{float(self.config.buy_price_max):.2f}]" if self.config.buy_price_min and self.config.buy_price_max else "Buy "
+
+        # Find max label length for alignment
+        max_label_len = max(len(sell_label), len(buy_label))
+
+        # Sell range (with position marker)
         if self.config.sell_price_min and self.config.sell_price_max:
-            label = f"Sell [{float(self.config.sell_price_min):.2f}-{float(self.config.sell_price_max):.2f}]"
             viz_lines.append(make_range_bar(
-                self.config.sell_price_min, self.config.sell_price_max, label, '═'
+                self.config.sell_price_min, self.config.sell_price_max,
+                sell_label.ljust(max_label_len), '═', show_position=True
             ))
         else:
             viz_lines.append("  Sell: No limits set")
 
-        # Buy range
+        # Buy range (with position marker)
         if self.config.buy_price_min and self.config.buy_price_max:
-            label = f"Buy  [{float(self.config.buy_price_min):.2f}-{float(self.config.buy_price_max):.2f}]"
             viz_lines.append(make_range_bar(
-                self.config.buy_price_min, self.config.buy_price_max, label, '─'
+                self.config.buy_price_min, self.config.buy_price_max,
+                buy_label.ljust(max_label_len), '─', show_position=True
             ))
         else:
             viz_lines.append("  Buy : No limits set")
 
-        # Position and price line
-        pos_bar = [' '] * bar_width
-        # Add position bounds
-        if pos_lower:
-            idx = pos_to_idx(pos_lower)
-            if 0 <= idx < bar_width:
-                pos_bar[idx] = '|'
-        if pos_upper:
-            idx = pos_to_idx(pos_upper)
-            if 0 <= idx < bar_width:
-                pos_bar[idx] = '|'
-        # Add current price (overwrites if same position)
-        price_idx = pos_to_idx(current_price)
-        if 0 <= price_idx < bar_width:
-            pos_bar[price_idx] = '●'
-        viz_lines.append(f"  Pos : {''.join(pos_bar)}")
-
-        # Scale line
+        # Scale line (aligned with bar start)
         min_str = f'{float(scale_min):.2f}'
         max_str = f'{float(scale_max):.2f}'
-        viz_lines.append(f"        {min_str}{' ' * (bar_width - len(min_str) - len(max_str))}{max_str}")
+        label_padding = max_label_len + 4  # "  " prefix + ": " suffix
+        viz_lines.append(f"{' ' * label_padding}{min_str}{' ' * (bar_width - len(min_str) - len(max_str))}{max_str}")
 
         return '\n'.join(viz_lines)
