@@ -8,6 +8,7 @@ from pydantic import Field
 
 from hummingbot.client.ui.interface_utils import format_df_for_printout
 from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.data_feed.amm_gateway_data_feed import AmmGatewayDataFeed
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
@@ -34,10 +35,9 @@ class AMMDataFeedExample(StrategyV2Base):
     This example shows how to use the AmmGatewayDataFeed to fetch prices from a DEX
     """
 
-    @classmethod
-    def init_markets(cls, config: AMMDataFeedConfig):
+    def update_markets(self, markets: MarketDict) -> MarketDict:
         # Gateway connectors don't need market initialization
-        cls.markets = {}
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: AMMDataFeedConfig):
         super().__init__(connectors, config)

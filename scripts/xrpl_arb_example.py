@@ -11,7 +11,7 @@ from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.exchange.xrpl.xrpl_exchange import XrplExchange
 from hummingbot.connector.exchange.xrpl.xrpl_utils import PoolInfo
 from hummingbot.connector.exchange_py_base import ExchangePyBase
-from hummingbot.core.data_type.common import OrderType, TradeType
+from hummingbot.core.data_type.common import MarketDict, OrderType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.core.utils.async_utils import safe_ensure_future
@@ -52,9 +52,10 @@ class XRPLSimpleArb(StrategyV2Base):
     It uses a connector to get the current price and manage liquidity in AMM Pools
     """
 
-    @classmethod
-    def init_markets(cls, config: XRPLSimpleArbConfig):
-        cls.markets = {"xrpl": {config.trading_pair_xrpl}, config.cex_exchange: {config.trading_pair_cex}}
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets["xrpl"] = markets.get("xrpl", set()) | {self.config.trading_pair_xrpl}
+        markets[self.config.cex_exchange] = markets.get(self.config.cex_exchange, set()) | {self.config.trading_pair_cex}
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: XRPLSimpleArbConfig):
         super().__init__(connectors, config)

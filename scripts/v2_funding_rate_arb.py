@@ -8,7 +8,7 @@ from pydantic import Field, field_validator
 from hummingbot.client.ui.interface_utils import format_df_for_printout
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.clock import Clock
-from hummingbot.core.data_type.common import OrderType, PositionAction, PositionMode, PriceType, TradeType
+from hummingbot.core.data_type.common import MarketDict, OrderType, PositionAction, PositionMode, PriceType, TradeType
 from hummingbot.core.event.events import FundingPaymentCompletedEvent
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
@@ -70,6 +70,12 @@ class FundingRateArbitrageConfig(StrategyV2ConfigBase):
             return set(v.split(","))
         return v
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        for connector in self.connectors:
+            trading_pairs = {FundingRateArbitrage.get_trading_pair_for_connector(token, connector) for token in self.tokens}
+            markets[connector] = markets.get(connector, set()) | trading_pairs
+        return markets
+
 
 class FundingRateArbitrage(StrategyV2Base):
     quote_markets_map = {
@@ -85,14 +91,6 @@ class FundingRateArbitrage(StrategyV2Base):
     @classmethod
     def get_trading_pair_for_connector(cls, token, connector):
         return f"{token}-{cls.quote_markets_map.get(connector, 'USDT')}"
-
-    @classmethod
-    def init_markets(cls, config: FundingRateArbitrageConfig):
-        markets = {}
-        for connector in config.connectors:
-            trading_pairs = {cls.get_trading_pair_for_connector(token, connector) for token in config.tokens}
-            markets[connector] = trading_pairs
-        cls.markets = markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: FundingRateArbitrageConfig):
         super().__init__(connectors, config)

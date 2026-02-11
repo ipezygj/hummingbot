@@ -7,6 +7,7 @@ from pydantic import Field
 
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.exchange.xrpl.xrpl_exchange import XrplExchange
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.connector.exchange.xrpl.xrpl_utils import (
     AddLiquidityResponse,
     PoolInfo,
@@ -64,6 +65,10 @@ class XRPLTriggeredLiquidityConfig(StrategyV2ConfigBase):
         },
     )
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets["xrpl"] = markets.get("xrpl", set()) | {self.trading_pair}
+        return markets
+
 
 class XRPLTriggeredLiquidity(StrategyV2Base):
     """
@@ -71,10 +76,6 @@ class XRPLTriggeredLiquidity(StrategyV2Base):
     Remove liquidity if the price is outside the range.
     It uses a connector to get the current price and manage liquidity in AMM Pools
     """
-
-    @classmethod
-    def init_markets(cls, config: XRPLTriggeredLiquidityConfig):
-        cls.markets = {"xrpl": {config.trading_pair}}
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: XRPLTriggeredLiquidityConfig):
         super().__init__(connectors, config)

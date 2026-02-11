@@ -6,7 +6,7 @@ import pandas as pd
 from pydantic import Field
 
 from hummingbot.connector.connector_base import ConnectorBase
-from hummingbot.core.data_type.common import OrderType, TradeType
+from hummingbot.core.data_type.common import MarketDict, OrderType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
@@ -44,9 +44,10 @@ class SimpleXEMM(StrategyV2Base):
     and taker hedge price) dips below min_spread, the bot refreshes the order
     """
 
-    @classmethod
-    def init_markets(cls, config: SimpleXEMMConfig):
-        cls.markets = {config.maker_connector: {config.maker_trading_pair}, config.taker_connector: {config.taker_trading_pair}}
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.config.maker_connector] = markets.get(self.config.maker_connector, set()) | {self.config.maker_trading_pair}
+        markets[self.config.taker_connector] = markets.get(self.config.taker_connector, set()) | {self.config.taker_trading_pair}
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimpleXEMMConfig):
         super().__init__(connectors, config)

@@ -11,6 +11,7 @@ from pydantic import Field
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.gateway.common_types import ConnectorType, get_connector_type
 from hummingbot.connector.gateway.gateway_lp import AMMPoolInfo, AMMPositionInfo, CLMMPoolInfo, CLMMPositionInfo
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
@@ -48,9 +49,9 @@ class LpPositionManager(StrategyV2Base):
     and closes the position if the price moves out of range for a specified duration.
     """
 
-    @classmethod
-    def init_markets(cls, config: LpPositionManagerConfig):
-        cls.markets = {config.connector: {config.trading_pair}}
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.config.connector] = markets.get(self.config.connector, set()) | {self.config.trading_pair}
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: LpPositionManagerConfig):
         super().__init__(connectors, config)

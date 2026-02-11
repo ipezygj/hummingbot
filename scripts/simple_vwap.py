@@ -8,6 +8,7 @@ from pydantic import Field
 
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.connector.utils import split_hb_trading_pair
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent, OrderType, TradeType
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
@@ -52,9 +53,9 @@ class VWAPExample(StrategyV2Base):
     - Use of the rate oracle has been removed
     """
 
-    @classmethod
-    def init_markets(cls, config: VWAPConfig):
-        cls.markets = {config.connector_name: {config.trading_pair}}
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.config.connector_name] = markets.get(self.config.connector_name, set()) | {self.config.trading_pair}
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: VWAPConfig):
         super().__init__(connectors, config)

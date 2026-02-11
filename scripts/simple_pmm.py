@@ -6,7 +6,7 @@ from typing import Dict, List
 from pydantic import Field
 
 from hummingbot.connector.connector_base import ConnectorBase
-from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
+from hummingbot.core.data_type.common import MarketDict, OrderType, PriceType, TradeType
 from hummingbot.core.data_type.order_candidate import OrderCandidate
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
@@ -37,10 +37,10 @@ class SimplePMM(StrategyV2Base):
     create_timestamp = 0
     price_source = PriceType.MidPrice
 
-    @classmethod
-    def init_markets(cls, config: SimplePMMConfig):
-        cls.markets = {config.exchange: {config.trading_pair}}
-        cls.price_source = PriceType.LastTrade if config.price_type == "last" else PriceType.MidPrice
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.config.exchange] = markets.get(self.config.exchange, set()) | {self.config.trading_pair}
+        self.price_source = PriceType.LastTrade if self.config.price_type == "last" else PriceType.MidPrice
+        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimplePMMConfig):
         super().__init__(connectors, config)
