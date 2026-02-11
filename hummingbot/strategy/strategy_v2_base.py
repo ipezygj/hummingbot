@@ -65,10 +65,14 @@ class StrategyV2ConfigBase(BaseClientModel):
 
     Fields:
     - script_file_name: The script file that this config is for (set via os.path.basename(__file__) in subclass).
-    - controllers_config: Controller configuration file paths. Markets are automatically collected from controllers.
+    - controllers_config: Optional controller configuration file paths.
     - candles_config: Candles configurations for strategy-level data feeds. Controllers may also define their own candles.
 
-    Markets are collected from both controllers and the strategy class itself via their respective update_markets class methods.
+    Markets are defined via the update_markets() method, which subclasses should override to specify their required markets.
+    This ensures consistency with controller configurations and allows for programmatic market definition.
+
+    Subclasses can define their own `candles_config` field using the
+    static utility method `parse_candles_config_str()`.
     """
     script_file_name: str = ""
     controllers_config: List[str] = Field(
@@ -78,7 +82,6 @@ class StrategyV2ConfigBase(BaseClientModel):
             "prompt_on_new": True,
         }
     )
-
 
     @field_validator("controllers_config", mode="before")
     @classmethod
@@ -135,6 +138,40 @@ class StrategyV2ConfigBase(BaseClientModel):
                 markets_dict[exchange_name] = set(trading_pairs.split(','))
         return markets_dict
 
+    @staticmethod
+    def parse_candles_config_str(v: str) -> List[CandlesConfig]:
+        configs = []
+        if v.strip():
+            entries = v.split(':')
+            for entry in entries:
+                parts = entry.split('.')
+                if len(parts) != 4:
+                    raise ValueError(f"Invalid candles config format in segment '{entry}'. "
+                                     "Expected format: 'exchange.tradingpair.interval.maxrecords'")
+                connector, trading_pair, interval, max_records_str = parts
+                try:
+                    max_records = int(max_records_str)
+                except ValueError:
+                    raise ValueError(f"Invalid max_records value '{max_records_str}' in segment '{entry}'. "
+                                     "max_records should be an integer.")
+                config = CandlesConfig(
+                    connector=connector,
+                    trading_pair=trading_pair,
+                    interval=interval,
+                    max_records=max_records
+                )
+                configs.append(config)
+        return configs
+
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        """
+        Update the markets dict with strategy-specific markets.
+        Subclasses should override this method to add their markets.
+        
+        :param markets: Current markets dictionary
+        :return: Updated markets dictionary
+        """
+        return markets
 
 
 class StrategyV2Base(StrategyPyBase):
@@ -142,8 +179,8 @@ class StrategyV2Base(StrategyPyBase):
     Unified base class for both simple script strategies and V2 strategies using smart components.
 
     V2 infrastructure (MarketDataProvider, ExecutorOrchestrator, actions_queue) is always initialized.
-    Controllers are loaded and orchestration runs automatically when config is a StrategyV2ConfigBase.
-    Markets are collected from both controllers and the strategy config's update_markets method.
+    When config is a StrategyV2ConfigBase, controllers are loaded and orchestration runs automatically.
+    When config is None or a simple BaseModel, simple scripts can still use executors and market data on demand.
     """
     # Class-level markets definition used by both simple scripts and V2 strategies
     markets: Dict[str, Set[str]] = {}
@@ -179,17 +216,16 @@ class StrategyV2Base(StrategyPyBase):
         Initialize the markets that the strategy is going to use. This method is called when the strategy is created in
         the start command. Can be overridden to implement custom behavior.
 
-        Markets are collected from controllers and the strategy config itself.
+        Merges markets from controllers and the strategy config via their respective update_markets methods.
         """
         if isinstance(config, StrategyV2ConfigBase):
             markets = MarketDict({})
             # From controllers
             controllers_configs = config.load_controller_configs()
             for controller_config in controllers_configs:
-                controller_class = controller_config.get_controller_class()
-                markets = controller_class.update_markets(controller_config, markets)
-            # From strategy
-            markets = cls.update_markets(config, markets)
+                markets = controller_config.update_markets(markets)
+            # From strategy config
+            markets = config.update_markets(markets)
             cls.markets = markets
         else:
             raise NotImplementedError
@@ -746,8 +782,7 @@ class StrategyV2Base(StrategyPyBase):
     def set_position_mode(self, connector: str, position_mode: PositionMode):
         self.connectors[connector].set_position_mode(position_mode)
 
-    @staticmethod
-    def filter_executors(executors: List[ExecutorInfo], filter_func: Callable[[ExecutorInfo], bool]) -> List[ExecutorInfo]:
+    def filter_executors(self, executors: List[ExecutorInfo], filter_func: Callable[[ExecutorInfo], bool]) -> List[ExecutorInfo]:
         return [executor for executor in executors if filter_func(executor)]
 
     @staticmethod
