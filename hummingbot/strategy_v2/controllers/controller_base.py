@@ -12,13 +12,8 @@ from hummingbot.core.data_type.common import MarketDict, PositionAction, PriceTy
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
-from hummingbot.strategy_v2.executors.position_executor.data_types import (
-    ExecutionStrategy,
-    LimitChaserConfig,
-    TripleBarrierConfig,
-    create_order_executor_config,
-    create_position_executor_config
-)
+from hummingbot.strategy_v2.executors.order_executor.data_types import ExecutionStrategy, LimitChaserConfig, OrderExecutorConfig
+from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
 from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.models.executors import CloseType
@@ -567,19 +562,20 @@ class ControllerBase(RunnableBase):
 
         if triple_barrier_config:
             # Create position executor with barriers
-            config = create_position_executor_config(
+            config = PositionExecutorConfig(
+                timestamp=timestamp,
                 trading_pair=trading_pair,
                 connector_name=connector_name,
                 side=side,
                 amount=amount,
                 entry_price=price,
                 triple_barrier_config=triple_barrier_config,
-                leverage=leverage,
-                timestamp=timestamp
+                leverage=leverage
             )
         else:
             # Create simple order executor
-            config = create_order_executor_config(
+            config = OrderExecutorConfig(
+                timestamp=timestamp,
                 trading_pair=trading_pair,
                 connector_name=connector_name,
                 side=side,
@@ -588,8 +584,7 @@ class ControllerBase(RunnableBase):
                 position_action=PositionAction.OPEN,
                 price=price,
                 chaser_config=chaser_config,
-                leverage=leverage,
-                timestamp=timestamp
+                leverage=leverage
             )
 
         # Create executor action
