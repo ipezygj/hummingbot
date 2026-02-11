@@ -70,7 +70,12 @@ class LPExecutorState(BaseModel):
     base_fee: Decimal = Decimal("0")
     quote_fee: Decimal = Decimal("0")
 
-    # Price at ADD time for accurate P&L calculation
+    # Actual amounts deposited at ADD time (for accurate P&L calculation)
+    # Note: base_amount/quote_amount above change as price moves; these are fixed
+    initial_base_amount: Decimal = Decimal("0")
+    initial_quote_amount: Decimal = Decimal("0")
+
+    # Market price at ADD time for accurate P&L calculation
     add_mid_price: Decimal = Decimal("0")
 
     # Rent tracking
