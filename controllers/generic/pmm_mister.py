@@ -192,12 +192,6 @@ class PMMister(ControllerBase):
         # Get levels to execute with advanced logic
         levels_to_execute = self.get_levels_to_execute()
 
-        # Check for global TP/SL first
-        # global_tpsl_action = self.check_global_take_profit_stop_loss()  # Temporarily disabled
-        # if global_tpsl_action:
-        #     create_actions.append(global_tpsl_action)
-        #     return create_actions
-            
         # Pre-calculate spreads and amounts
         buy_spreads, buy_amounts_quote = self.config.get_spreads_and_amounts_in_quote(TradeType.BUY)
         sell_spreads, sell_amounts_quote = self.config.get_spreads_and_amounts_in_quote(TradeType.SELL)
@@ -269,7 +263,17 @@ class PMMister(ControllerBase):
             is_buy = level_id.startswith("buy")
             current_price = Decimal(self.processed_data["reference_price"])
             
-            # Enhanced price distance logic - check both current price and existing order distances
+            # Evaluate each condition separately for debugging
+            has_active_not_trading = bool(analysis["active_executors_not_trading"])
+            has_too_many_executors = analysis["total_active_executors"] >= self.config.max_active_executors_by_level
+            
+            # Check cooldown condition
+            has_active_cooldown = False
+            if analysis["open_order_last_update"]:
+                cooldown_time = self.config.get_cooldown_time(trade_type)
+                has_active_cooldown = current_time - analysis["open_order_last_update"] < cooldown_time
+            
+            # Enhanced price distance logic
             price_distance_violated = False
             if is_buy and analysis["max_price"]:
                 # For buy orders, ensure they're not too close to current price
@@ -282,14 +286,10 @@ class PMMister(ControllerBase):
                 if distance_from_current < self.config.min_sell_price_distance_pct:
                     price_distance_violated = True
             
-            # Level is working if:
-            # - it has active executors not trading
-            # - it has too many active executors for the level
-            # - it has a cooldown that is still active
-            # - price distance requirements are violated
-            if (analysis["active_executors_not_trading"] or
-                    analysis["total_active_executors"] >= self.config.max_active_executors_by_level or
-                    (analysis["open_order_last_update"] and current_time - analysis["open_order_last_update"] < self.config.get_cooldown_time(trade_type)) or
+            # Level is working if any condition is true
+            if (has_active_not_trading or
+                    has_too_many_executors or
+                    has_active_cooldown or
                     price_distance_violated):
                 working_levels_ids.append(level_id)
                 continue
@@ -327,21 +327,7 @@ class PMMister(ControllerBase):
         # Find hanging executors that should be effectivized (only is_trading)
         executors_to_effectivize = self.filter_executors(
             executors=self.executors_info,
-            filter_func=lambda x: (
-                x.is_trading and
-                self.should_effectivize_executor(x, current_time)
-            )
-        )
-        
-        # Find executors that are too far from current price to be removed entirely
-        current_price = Decimal(self.processed_data["reference_price"])
-        executors_too_far = self.filter_executors(
-            executors=self.executors_info,
-            filter_func=lambda x: (
-                x.is_trading and
-                hasattr(x.config, 'entry_price') and
-                self._is_executor_too_far_from_price(x, current_price)
-            )
+            filter_func=lambda x: x.is_trading and self.should_effectivize_executor(x, current_time)
         )
         
         # Create actions for effectivization (keep position)
@@ -350,15 +336,9 @@ class PMMister(ControllerBase):
             keep_position=True,
             executor_id=executor.id
         ) for executor in executors_to_effectivize]
+
         
-        # Create actions for removal (don't keep position)
-        remove_actions = [StopExecutorAction(
-            controller_id=self.config.id,
-            keep_position=False,
-            executor_id=executor.id
-        ) for executor in executors_too_far]
-        
-        return effectivize_actions + remove_actions
+        return effectivize_actions
 
     async def update_processed_data(self):
         """
@@ -724,40 +704,3 @@ class PMMister(ControllerBase):
             max_distance = Decimal("0.05")  # 5% maximum distance
             
         return distance > max_distance
-    
-    # def check_global_take_profit_stop_loss(self) -> Optional[ExecutorAction]:
-    #     """Check if global TP/SL should be triggered"""
-    #     # Check if a global TP/SL executor already exists
-    #     global_executor_exists = any(
-    #         executor.is_active and
-    #         executor.custom_info.get("level_id") == "global_tp_sl"
-    #         for executor in self.executors_info
-    #     )
-    #     
-    #     if global_executor_exists:
-    #         return None
-    #         
-    #     current_base_pct = self.processed_data["current_base_pct"]
-    #     unrealized_pnl_pct = self.processed_data.get("unrealized_pnl_pct", Decimal("0"))
-    #     
-    #     # Only trigger if we have a significant position and meet TP/SL criteria
-    #     if (current_base_pct > self.config.target_base_pct and
-    #         (unrealized_pnl_pct > self.config.global_take_profit or
-    #          unrealized_pnl_pct < -self.config.global_stop_loss)):
-    #         
-    #         from hummingbot.strategy_v2.executors.order_executor.data_types import OrderExecutorConfig, ExecutionStrategy
-    #         
-    #         return CreateExecutorAction(
-    #             controller_id=self.config.id,
-    #             executor_config=OrderExecutorConfig(
-    #                 timestamp=self.market_data_provider.time(),
-    #                 connector_name=self.config.connector_name,
-    #                 trading_pair=self.config.trading_pair,
-    #                 side=TradeType.SELL,
-    #                 amount=self.processed_data["position_amount"],
-    #                 execution_strategy=ExecutionStrategy.MARKET,
-    #                 price=self.processed_data["reference_price"],
-    #                 level_id="global_tp_sl"
-    #             )
-    #         )
-    #     return None
