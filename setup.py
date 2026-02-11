@@ -81,6 +81,7 @@ def main():
         "web3",
         "xrpl-py>=4.1.0",
         "PyYaml>=0.2.5",
+        "click>=8.0",
     ]
 
     # --- 1. Define Flags (But don't pass them to Cython yet) ---
@@ -161,6 +162,11 @@ def main():
         scripts=[
             "bin/hummingbot_quickstart.py"
         ],
+        entry_points={
+            "console_scripts": [
+                "hummingbot=hummingbot.cli:main",
+            ],
+        },
         cmdclass={"build_ext": BuildExt},
     )
 
