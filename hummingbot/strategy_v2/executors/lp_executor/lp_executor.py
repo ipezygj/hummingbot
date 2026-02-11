@@ -236,6 +236,9 @@ class LPExecutor(ExecutorBase):
                 self.lp_position_state.upper_price = Decimal(str(position_info.upper_price))
                 self.lp_position_state.base_fee = Decimal(str(position_info.base_fee_amount))
                 self.lp_position_state.quote_fee = Decimal(str(position_info.quote_fee_amount))
+                # Store initial amounts for accurate P&L calculation (these don't change as price moves)
+                self.lp_position_state.initial_base_amount = self.lp_position_state.base_amount
+                self.lp_position_state.initial_quote_amount = self.lp_position_state.quote_amount
 
             self.logger().info(
                 f"Position created: {position_address}, "
@@ -572,9 +575,13 @@ class LPExecutor(ExecutorBase):
             "position_rent_refunded": float(self.lp_position_state.position_rent_refunded),
             "out_of_range_seconds": self.lp_position_state.get_out_of_range_seconds(current_time),
             "max_retries_reached": self._max_retries_reached,
-            # Initial amounts from config for inventory tracking
-            "initial_base_amount": float(self.config.base_amount),
-            "initial_quote_amount": float(self.config.quote_amount),
+            # Initial amounts (actual deposited) for inventory tracking; fall back to config if not set
+            "initial_base_amount": float(self.lp_position_state.initial_base_amount
+                                         if self.lp_position_state.initial_base_amount > 0
+                                         else self.config.base_amount),
+            "initial_quote_amount": float(self.lp_position_state.initial_quote_amount
+                                          if self.lp_position_state.initial_quote_amount > 0
+                                          else self.config.quote_amount),
         }
 
     # Required abstract methods from ExecutorBase
@@ -589,7 +596,7 @@ class LPExecutor(ExecutorBase):
 
         P&L = (current_position_value + fees_earned) - initial_value
 
-        Uses stored add_mid_price for initial value to match lphistory calculation.
+        Uses stored initial amounts and add_mid_price for accurate calculation matching lphistory.
         Works for both open positions and closed positions (using final returned amounts).
         """
         if self._pool_info is None or self._pool_info.price == 0:
@@ -599,11 +606,16 @@ class LPExecutor(ExecutorBase):
         # Use stored add_mid_price for initial value, fall back to current price if not set
         add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
 
-        # Initial value (from config, valued at ADD time price)
-        initial_value = (
-            self.config.base_amount * add_price +
-            self.config.quote_amount
-        )
+        # Use stored initial amounts (actual deposited), fall back to config if not set
+        initial_base = (self.lp_position_state.initial_base_amount
+                        if self.lp_position_state.initial_base_amount > 0
+                        else self.config.base_amount)
+        initial_quote = (self.lp_position_state.initial_quote_amount
+                         if self.lp_position_state.initial_quote_amount > 0
+                         else self.config.quote_amount)
+
+        # Initial value (actual deposited amounts, valued at ADD time price)
+        initial_value = initial_base * add_price + initial_quote
 
         # Current position value (tokens in position, valued at current price)
         current_value = (
@@ -621,7 +633,7 @@ class LPExecutor(ExecutorBase):
         return current_value + fees_earned - initial_value
 
     def get_net_pnl_pct(self) -> Decimal:
-        """Returns net P&L as percentage."""
+        """Returns net P&L as percentage of initial investment."""
         pnl_quote = self.get_net_pnl_quote()
         if pnl_quote == Decimal("0"):
             return Decimal("0")
@@ -633,10 +645,15 @@ class LPExecutor(ExecutorBase):
         # Use stored add_mid_price for initial value to match get_net_pnl_quote()
         add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
 
-        initial_value = (
-            self.config.base_amount * add_price +
-            self.config.quote_amount
-        )
+        # Use stored initial amounts (actual deposited), fall back to config if not set
+        initial_base = (self.lp_position_state.initial_base_amount
+                        if self.lp_position_state.initial_base_amount > 0
+                        else self.config.base_amount)
+        initial_quote = (self.lp_position_state.initial_quote_amount
+                         if self.lp_position_state.initial_quote_amount > 0
+                         else self.config.quote_amount)
+
+        initial_value = initial_base * add_price + initial_quote
 
         if initial_value == Decimal("0"):
             return Decimal("0")
