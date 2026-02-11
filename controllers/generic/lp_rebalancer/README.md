@@ -135,6 +135,7 @@ buy_price_min: 85                      # Floor - don't buy below
 
 # Timing
 rebalance_seconds: 60                  # Seconds out-of-range before rebalancing
+rebalance_threshold_pct: '0.1'         # Price must be this % beyond bounds before timer starts
 
 # Optional
 strategy_type: 0                       # Connector-specific (Meteora strategy type)
@@ -154,6 +155,7 @@ manual_kill_switch: false              # Emergency stop
 | `buy_price_max` | decimal | null | Upper limit for BUY zone (anchor point) |
 | `buy_price_min` | decimal | null | Lower limit for BUY zone |
 | `rebalance_seconds` | int | 60 | Seconds out-of-range before rebalancing |
+| `rebalance_threshold_pct` | decimal | 0.1 | Price must be this % beyond position bounds before rebalance timer starts (0.1 = 0.1%, 2 = 2%) |
 
 ### Price Limits Visualization
 
