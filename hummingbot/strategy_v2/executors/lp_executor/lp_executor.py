@@ -49,6 +49,7 @@ class LPExecutor(ExecutorBase):
         self.config: LPExecutorConfig = config
         self.lp_position_state = LPExecutorState()
         self._pool_info: Optional[Union[CLMMPoolInfo, AMMPoolInfo]] = None
+        self._current_price: Optional[Decimal] = None  # Updated from pool_info or position_info
         self._max_retries = max_retries
         self._current_retries = 0
         self._max_retries_reached = False  # True when max retries reached, requires intervention
@@ -62,14 +63,15 @@ class LPExecutor(ExecutorBase):
         """Main control loop - simple state machine with direct await operations"""
         current_time = self._strategy.current_timestamp
 
-        # Fetch pool info (always needed for state updates)
-        await self.update_pool_info()
-
-        # Fetch position info when position exists to get current amounts
+        # Fetch position info when position exists (includes current price)
+        # This avoids redundant pool_info call since position_info has price
         if self.lp_position_state.position_address:
             await self._update_position_info()
+        else:
+            # Only fetch pool info when no position exists (for price during creation)
+            await self.update_pool_info()
 
-        current_price = Decimal(str(self._pool_info.price)) if self._pool_info else None
+        current_price = self._current_price
         self.lp_position_state.update_state(current_price, current_time)
 
         match self.lp_position_state.state:
@@ -134,6 +136,8 @@ class LPExecutor(ExecutorBase):
                 # Update price bounds from actual position (may differ slightly from config)
                 self.lp_position_state.lower_price = Decimal(str(position_info.lower_price))
                 self.lp_position_state.upper_price = Decimal(str(position_info.upper_price))
+                # Update current price from position_info (avoids separate pool_info call)
+                self._current_price = Decimal(str(position_info.price))
             else:
                 self.logger().warning(f"get_position_info returned None for {self.lp_position_state.position_address}")
         except Exception as e:
@@ -239,6 +243,12 @@ class LPExecutor(ExecutorBase):
                 # Store initial amounts for accurate P&L calculation (these don't change as price moves)
                 self.lp_position_state.initial_base_amount = self.lp_position_state.base_amount
                 self.lp_position_state.initial_quote_amount = self.lp_position_state.quote_amount
+                # Use price from position_info (avoids separate pool_info call)
+                current_price = Decimal(str(position_info.price))
+                self._current_price = current_price
+                self.lp_position_state.add_mid_price = current_price
+            else:
+                current_price = mid_price
 
             self.logger().info(
                 f"Position created: {position_address}, "
@@ -246,11 +256,6 @@ class LPExecutor(ExecutorBase):
                 f"base: {self.lp_position_state.base_amount}, quote: {self.lp_position_state.quote_amount}, "
                 f"bounds: [{self.lp_position_state.lower_price} - {self.lp_position_state.upper_price}]"
             )
-
-            # Fetch pool info for current price and store as add_mid_price for P&L calculation
-            await self.update_pool_info()
-            current_price = Decimal(str(self._pool_info.price)) if self._pool_info else mid_price
-            self.lp_position_state.add_mid_price = current_price
 
             # Trigger event for database recording (lphistory command)
             # Note: mid_price is the current MARKET price, not the position range midpoint
@@ -525,9 +530,9 @@ class LPExecutor(ExecutorBase):
     @property
     def filled_amount_quote(self) -> Decimal:
         """Returns total position value in quote currency (tokens + fees)"""
-        if self._pool_info is None or self._pool_info.price == 0:
+        if self._current_price is None or self._current_price == 0:
             return Decimal("0")
-        current_price = Decimal(str(self._pool_info.price))
+        current_price = self._current_price
 
         # Total value = (base * price + quote) + (base_fee * price + quote_fee)
         token_value = (
@@ -542,7 +547,7 @@ class LPExecutor(ExecutorBase):
 
     def get_custom_info(self) -> Dict:
         """Report LP position state to controller"""
-        price_float = float(self._pool_info.price) if self._pool_info else 0.0
+        price_float = float(self._current_price) if self._current_price else 0.0
         current_time = self._strategy.current_timestamp
 
         # Calculate total value in quote
@@ -561,7 +566,7 @@ class LPExecutor(ExecutorBase):
             "side": self.config.side,
             "state": self.lp_position_state.state.value,
             "position_address": self.lp_position_state.position_address,
-            "current_price": price_float if self._pool_info else None,
+            "current_price": price_float if self._current_price else None,
             "lower_price": float(self.lp_position_state.lower_price),
             "upper_price": float(self.lp_position_state.upper_price),
             "base_amount": float(self.lp_position_state.base_amount),
@@ -599,9 +604,9 @@ class LPExecutor(ExecutorBase):
         Uses stored initial amounts and add_mid_price for accurate calculation matching lphistory.
         Works for both open positions and closed positions (using final returned amounts).
         """
-        if self._pool_info is None or self._pool_info.price == 0:
+        if self._current_price is None or self._current_price == 0:
             return Decimal("0")
-        current_price = Decimal(str(self._pool_info.price))
+        current_price = self._current_price
 
         # Use stored add_mid_price for initial value, fall back to current price if not set
         add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
@@ -638,9 +643,9 @@ class LPExecutor(ExecutorBase):
         if pnl_quote == Decimal("0"):
             return Decimal("0")
 
-        if self._pool_info is None or self._pool_info.price == 0:
+        if self._current_price is None or self._current_price == 0:
             return Decimal("0")
-        current_price = Decimal(str(self._pool_info.price))
+        current_price = self._current_price
 
         # Use stored add_mid_price for initial value to match get_net_pnl_quote()
         add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
@@ -677,5 +682,7 @@ class LPExecutor(ExecutorBase):
 
         try:
             self._pool_info = await connector.get_pool_info_by_address(self.config.pool_address)
+            if self._pool_info:
+                self._current_price = Decimal(str(self._pool_info.price))
         except Exception as e:
             self.logger().warning(f"Error fetching pool info: {e}")

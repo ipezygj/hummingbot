@@ -152,8 +152,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
     def test_filled_amount_quote_with_pool_info(self):
         """Test filled_amount_quote calculates correctly"""
         executor = self.get_executor()
-        executor._pool_info = MagicMock()
-        executor._pool_info.price = 100.0
+        executor._current_price = Decimal("100")
         executor.lp_position_state.base_amount = Decimal("2.0")
         executor.lp_position_state.quote_amount = Decimal("50")
         executor.lp_position_state.base_fee = Decimal("0.01")
@@ -170,8 +169,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
     def test_get_net_pnl_quote_with_values(self):
         """Test get_net_pnl_quote calculates correctly"""
         executor = self.get_executor()
-        executor._pool_info = MagicMock()
-        executor._pool_info.price = 100.0
+        executor._current_price = Decimal("100")
 
         # Config: base=1.0, quote=100 -> initial = 1.0*100 + 100 = 200
         # Current: base=1.1, quote=90, base_fee=0.01, quote_fee=1
@@ -193,8 +191,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
     def test_get_net_pnl_pct_with_values(self):
         """Test get_net_pnl_pct calculates correctly"""
         executor = self.get_executor()
-        executor._pool_info = MagicMock()
-        executor._pool_info.price = 100.0
+        executor._current_price = Decimal("100")
 
         executor.lp_position_state.base_amount = Decimal("1.1")
         executor.lp_position_state.quote_amount = Decimal("90")
@@ -232,8 +229,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
     def test_get_custom_info_with_position(self):
         """Test get_custom_info with position"""
         executor = self.get_executor()
-        executor._pool_info = MagicMock()
-        executor._pool_info.price = 100.0
+        executor._current_price = Decimal("100")
         executor.lp_position_state.state = LPExecutorStates.IN_RANGE
         executor.lp_position_state.position_address = "pos123"
         executor.lp_position_state.lower_price = Decimal("95")
