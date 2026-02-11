@@ -193,10 +193,10 @@ class PMMister(ControllerBase):
         levels_to_execute = self.get_levels_to_execute()
 
         # Check for global TP/SL first
-        global_tpsl_action = self.check_global_take_profit_stop_loss()
-        if global_tpsl_action:
-            create_actions.append(global_tpsl_action)
-            return create_actions
+        # global_tpsl_action = self.check_global_take_profit_stop_loss()  # Temporarily disabled
+        # if global_tpsl_action:
+        #     create_actions.append(global_tpsl_action)
+        #     return create_actions
             
         # Pre-calculate spreads and amounts
         buy_spreads, buy_amounts_quote = self.config.get_spreads_and_amounts_in_quote(TradeType.BUY)
@@ -324,7 +324,7 @@ class PMMister(ControllerBase):
         current_time = self.market_data_provider.time()
         actions = []
 
-        # Find hanging executors that should be effectivized
+        # Find hanging executors that should be effectivized (only is_trading)
         executors_to_effectivize = self.filter_executors(
             executors=self.executors_info,
             filter_func=lambda x: (
@@ -333,7 +333,7 @@ class PMMister(ControllerBase):
             )
         )
         
-        # Also check for hanging executors that are too far from current price
+        # Find executors that are too far from current price to be removed entirely
         current_price = Decimal(self.processed_data["reference_price"])
         executors_too_far = self.filter_executors(
             executors=self.executors_info,
@@ -344,14 +344,21 @@ class PMMister(ControllerBase):
             )
         )
         
-        # Combine both lists, avoiding duplicates
-        all_executors_to_stop = list(set(executors_to_effectivize + executors_too_far))
-        
-        return [StopExecutorAction(
+        # Create actions for effectivization (keep position)
+        effectivize_actions = [StopExecutorAction(
             controller_id=self.config.id,
             keep_position=True,
             executor_id=executor.id
-        ) for executor in all_executors_to_stop]
+        ) for executor in executors_to_effectivize]
+        
+        # Create actions for removal (don't keep position)
+        remove_actions = [StopExecutorAction(
+            controller_id=self.config.id,
+            keep_position=False,
+            executor_id=executor.id
+        ) for executor in executors_too_far]
+        
+        return effectivize_actions + remove_actions
 
     async def update_processed_data(self):
         """
@@ -479,13 +486,16 @@ class PMMister(ControllerBase):
 
     def _analyze_by_level_id(self, level_id: str) -> Dict:
         """Analyze executors for a specific level ID."""
+        # Get active executors for level calculations
         filtered_executors = [e for e in self.executors_info if e.custom_info.get("level_id") == level_id and e.is_active]
 
         active_not_trading = [e for e in filtered_executors if e.is_active and not e.is_trading]
         active_trading = [e for e in filtered_executors if e.is_active and e.is_trading]
 
+        # For cooldown calculation, include both active and recently completed executors
+        all_level_executors = [e for e in self.executors_info if e.custom_info.get("level_id") == level_id]
         open_order_last_updates = [
-            e.custom_info.get("open_order_last_update") for e in filtered_executors
+            e.custom_info.get("open_order_last_update") for e in all_level_executors
             if "open_order_last_update" in e.custom_info and e.custom_info["open_order_last_update"] is not None
         ]
         latest_open_order_update = max(open_order_last_updates) if open_order_last_updates else None
@@ -715,39 +725,39 @@ class PMMister(ControllerBase):
             
         return distance > max_distance
     
-    def check_global_take_profit_stop_loss(self) -> Optional[ExecutorAction]:
-        """Check if global TP/SL should be triggered"""
-        # Check if a global TP/SL executor already exists
-        global_executor_exists = any(
-            executor.is_active and
-            executor.custom_info.get("level_id") == "global_tp_sl"
-            for executor in self.executors_info
-        )
-        
-        if global_executor_exists:
-            return None
-            
-        current_base_pct = self.processed_data["current_base_pct"]
-        unrealized_pnl_pct = self.processed_data.get("unrealized_pnl_pct", Decimal("0"))
-        
-        # Only trigger if we have a significant position and meet TP/SL criteria
-        if (current_base_pct > self.config.target_base_pct and
-            (unrealized_pnl_pct > self.config.global_take_profit or
-             unrealized_pnl_pct < -self.config.global_stop_loss)):
-            
-            from hummingbot.strategy_v2.executors.order_executor.data_types import OrderExecutorConfig, ExecutionStrategy
-            
-            return CreateExecutorAction(
-                controller_id=self.config.id,
-                executor_config=OrderExecutorConfig(
-                    timestamp=self.market_data_provider.time(),
-                    connector_name=self.config.connector_name,
-                    trading_pair=self.config.trading_pair,
-                    side=TradeType.SELL,
-                    amount=self.processed_data["position_amount"],
-                    execution_strategy=ExecutionStrategy.MARKET,
-                    price=self.processed_data["reference_price"],
-                    level_id="global_tp_sl"
-                )
-            )
-        return None
+    # def check_global_take_profit_stop_loss(self) -> Optional[ExecutorAction]:
+    #     """Check if global TP/SL should be triggered"""
+    #     # Check if a global TP/SL executor already exists
+    #     global_executor_exists = any(
+    #         executor.is_active and
+    #         executor.custom_info.get("level_id") == "global_tp_sl"
+    #         for executor in self.executors_info
+    #     )
+    #     
+    #     if global_executor_exists:
+    #         return None
+    #         
+    #     current_base_pct = self.processed_data["current_base_pct"]
+    #     unrealized_pnl_pct = self.processed_data.get("unrealized_pnl_pct", Decimal("0"))
+    #     
+    #     # Only trigger if we have a significant position and meet TP/SL criteria
+    #     if (current_base_pct > self.config.target_base_pct and
+    #         (unrealized_pnl_pct > self.config.global_take_profit or
+    #          unrealized_pnl_pct < -self.config.global_stop_loss)):
+    #         
+    #         from hummingbot.strategy_v2.executors.order_executor.data_types import OrderExecutorConfig, ExecutionStrategy
+    #         
+    #         return CreateExecutorAction(
+    #             controller_id=self.config.id,
+    #             executor_config=OrderExecutorConfig(
+    #                 timestamp=self.market_data_provider.time(),
+    #                 connector_name=self.config.connector_name,
+    #                 trading_pair=self.config.trading_pair,
+    #                 side=TradeType.SELL,
+    #                 amount=self.processed_data["position_amount"],
+    #                 execution_strategy=ExecutionStrategy.MARKET,
+    #                 price=self.processed_data["reference_price"],
+    #                 level_id="global_tp_sl"
+    #             )
+    #         )
+    #     return None
