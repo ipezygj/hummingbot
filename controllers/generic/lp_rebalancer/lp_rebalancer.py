@@ -550,6 +550,8 @@ class LPRebalancer(ControllerBase):
             # Calculate totals from closed positions
             total_add_base = Decimal("0")
             total_add_quote = Decimal("0")
+            total_remove_base = Decimal("0")
+            total_remove_quote = Decimal("0")
             total_fees_base = Decimal("0")
             total_fees_quote = Decimal("0")
             total_pnl = Decimal("0")
@@ -558,17 +560,28 @@ class LPRebalancer(ControllerBase):
 
             for e in closed:
                 total_pnl += e.net_pnl_quote
+                # Add amounts from config (what was put in)
                 total_add_base += Decimal(str(getattr(e.config, "base_amount", 0)))
                 total_add_quote += Decimal(str(getattr(e.config, "quote_amount", 0)))
+                # Remove amounts from custom_info (what was returned)
+                total_remove_base += Decimal(str(e.custom_info.get("base_amount", 0)))
+                total_remove_quote += Decimal(str(e.custom_info.get("quote_amount", 0)))
+                # Fees collected
                 total_fees_base += Decimal(str(e.custom_info.get("base_fee", 0)))
                 total_fees_quote += Decimal(str(e.custom_info.get("quote_fee", 0)))
 
             total_fees_value = total_fees_base * current_price + total_fees_quote
 
+            # Calculate inventory change (remove + fees - add)
+            inv_change_base = total_remove_base + total_fees_base - total_add_base
+            inv_change_quote = total_remove_quote + total_fees_quote - total_add_quote
+
             # Compact summary
             line = f"| Closed: {len(closed)} (both:{both_count} buy:{buy_count} sell:{sell_count})  |  Open: {open_count}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
             line = f"| Fees: {float(total_fees_base):.6f} {self._base_token} + {float(total_fees_quote):.6f} {self._quote_token} = {float(total_fees_value):.6f} {self._quote_token}  |  P&L: {float(total_pnl):+.6f} {self._quote_token}"
+            status.append(line + " " * (box_width - len(line) + 1) + "|")
+            line = f"| Inventory: {float(inv_change_base):+.6f} {self._base_token}  {float(inv_change_quote):+.6f} {self._quote_token}"
             status.append(line + " " * (box_width - len(line) + 1) + "|")
 
         status.append("+" + "-" * box_width + "+")
