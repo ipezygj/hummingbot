@@ -38,6 +38,11 @@ class LPRebalancerConfig(ControllerConfigBase):
 
     # Rebalancing
     rebalance_seconds: int = Field(default=60, json_schema_extra={"is_updatable": True})
+    rebalance_threshold_pct: Decimal = Field(
+        default=Decimal("0.001"),
+        json_schema_extra={"is_updatable": True},
+        description="Price must be this % out of range before rebalance timer starts (0.001 = 0.1%)"
+    )
 
     # Price limits - overlapping grids for sell and buy ranges
     # Sell range: [sell_price_min, sell_price_max]
@@ -206,11 +211,13 @@ class LPRebalancer(ControllerBase):
 
         # Check for rebalancing when out of range
         if state == LPExecutorStates.OUT_OF_RANGE.value:
-            out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
-            if out_of_range_seconds is not None and out_of_range_seconds >= self.config.rebalance_seconds:
-                rebalance_action = self._handle_rebalance(executor)
-                if rebalance_action:
-                    actions.append(rebalance_action)
+            # Check if price is beyond threshold before considering timer
+            if self._is_beyond_rebalance_threshold(executor):
+                out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
+                if out_of_range_seconds is not None and out_of_range_seconds >= self.config.rebalance_seconds:
+                    rebalance_action = self._handle_rebalance(executor)
+                    if rebalance_action:
+                        actions.append(rebalance_action)
 
         return actions
 
@@ -270,6 +277,31 @@ class LPRebalancer(ControllerBase):
             executor_id=executor.id,
             keep_position=False,
         )
+
+    def _is_beyond_rebalance_threshold(self, executor: ExecutorInfo) -> bool:
+        """
+        Check if price is beyond the rebalance threshold.
+
+        Price must be this % out of range before rebalance timer is considered.
+        """
+        current_price = executor.custom_info.get("current_price")
+        lower_price = executor.custom_info.get("lower_price")
+        upper_price = executor.custom_info.get("upper_price")
+
+        if current_price is None or lower_price is None or upper_price is None:
+            return False
+
+        threshold = self.config.rebalance_threshold_pct
+
+        # Check if price is beyond threshold above upper or below lower
+        if current_price > upper_price:
+            deviation_pct = (current_price - upper_price) / upper_price
+            return deviation_pct >= threshold
+        elif current_price < lower_price:
+            deviation_pct = (lower_price - current_price) / lower_price
+            return deviation_pct >= threshold
+
+        return False  # Price is in range
 
     def _is_at_limit(self, side: int, lower_price: Decimal, upper_price: Decimal) -> bool:
         """
@@ -510,7 +542,13 @@ class LPRebalancer(ControllerBase):
                 # Show rebalance timer if out of range
                 out_of_range_seconds = executor.custom_info.get("out_of_range_seconds")
                 if out_of_range_seconds is not None:
-                    line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
+                    # Check if beyond threshold
+                    beyond_threshold = self._is_beyond_rebalance_threshold(executor)
+                    if beyond_threshold:
+                        line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
+                    else:
+                        threshold_pct = float(self.config.rebalance_threshold_pct) * 100
+                        line = f"| Rebalance: waiting (below {threshold_pct:.2f}% threshold)"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
         # Price limits visualization
