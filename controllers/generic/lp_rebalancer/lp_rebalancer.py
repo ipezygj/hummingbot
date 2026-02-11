@@ -39,9 +39,9 @@ class LPRebalancerConfig(ControllerConfigBase):
     # Rebalancing
     rebalance_seconds: int = Field(default=60, json_schema_extra={"is_updatable": True})
     rebalance_threshold_pct: Decimal = Field(
-        default=Decimal("0.001"),
+        default=Decimal("0.1"),
         json_schema_extra={"is_updatable": True},
-        description="Price must be this % out of range before rebalance timer starts (0.001 = 0.1%)"
+        description="Price must be this % out of range before rebalance timer starts (e.g., 0.1 = 0.1%, 2 = 2%)"
     )
 
     # Price limits - overlapping grids for sell and buy ranges
@@ -291,7 +291,7 @@ class LPRebalancer(ControllerBase):
         if current_price is None or lower_price is None or upper_price is None:
             return False
 
-        threshold = self.config.rebalance_threshold_pct
+        threshold = self.config.rebalance_threshold_pct / Decimal("100")
 
         # Check if price is beyond threshold above upper or below lower
         if current_price > upper_price:
@@ -515,10 +515,10 @@ class LPRebalancer(ControllerBase):
             current_price = executor.custom_info.get("current_price")
 
             if lower_price and upper_price and current_price:
-                # Show rebalance thresholds
-                threshold_pct = self.config.rebalance_threshold_pct
-                lower_threshold = Decimal(str(lower_price)) * (Decimal("1") - threshold_pct)
-                upper_threshold = Decimal(str(upper_price)) * (Decimal("1") + threshold_pct)
+                # Show rebalance thresholds (convert % to decimal)
+                threshold = self.config.rebalance_threshold_pct / Decimal("100")
+                lower_threshold = Decimal(str(lower_price)) * (Decimal("1") - threshold)
+                upper_threshold = Decimal(str(upper_price)) * (Decimal("1") + threshold)
                 line = f"| Rebalance if: <{float(lower_threshold):.6f} or >{float(upper_threshold):.6f}"
                 status.append(line + " " * (box_width - len(line) + 1) + "|")
 
@@ -554,8 +554,7 @@ class LPRebalancer(ControllerBase):
                     if beyond_threshold:
                         line = f"| Rebalance: {out_of_range_seconds}s / {self.config.rebalance_seconds}s"
                     else:
-                        threshold_pct = float(self.config.rebalance_threshold_pct) * 100
-                        line = f"| Rebalance: waiting (below {threshold_pct:.2f}% threshold)"
+                        line = f"| Rebalance: waiting (below {float(self.config.rebalance_threshold_pct):.2f}% threshold)"
                     status.append(line + " " * (box_width - len(line) + 1) + "|")
 
         # Price limits visualization
