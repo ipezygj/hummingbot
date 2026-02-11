@@ -559,6 +559,8 @@ class LPExecutor(ExecutorBase):
             "upper_price": float(self.lp_position_state.upper_price),
             "base_amount": float(self.lp_position_state.base_amount),
             "quote_amount": float(self.lp_position_state.quote_amount),
+            "base_fee": float(self.lp_position_state.base_fee),
+            "quote_fee": float(self.lp_position_state.quote_fee),
             "fees_earned_quote": fees_earned,
             "total_value_quote": total_value,
             "unrealized_pnl_quote": float(self.get_net_pnl_quote()),
@@ -566,6 +568,9 @@ class LPExecutor(ExecutorBase):
             "position_rent_refunded": float(self.lp_position_state.position_rent_refunded),
             "out_of_range_seconds": self.lp_position_state.get_out_of_range_seconds(current_time),
             "max_retries_reached": self._max_retries_reached,
+            # Initial amounts from config for inventory tracking
+            "initial_base_amount": float(self.config.base_amount),
+            "initial_quote_amount": float(self.config.quote_amount),
         }
 
     # Required abstract methods from ExecutorBase
