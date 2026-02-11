@@ -570,6 +570,10 @@ class LPRebalancer(ControllerBase):
             current_price = executor.custom_info.get("current_price")
 
             if lower_price and upper_price and current_price:
+                # Show current price
+                line = f"| Price: {float(current_price):.10f}"
+                status.append(line + " " * (box_width - len(line) + 1) + "|")
+
                 # Show rebalance thresholds (convert % to decimal)
                 # Takes into account price limits - rebalance only happens within limits
                 threshold = self.config.rebalance_threshold_pct / Decimal("100")
