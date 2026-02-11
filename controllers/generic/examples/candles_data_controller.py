@@ -139,7 +139,7 @@ class CandlesDataController(ControllerBase):
         # This controller is for data monitoring only, no trading actions
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> str:
         lines = []
         lines.extend(["\n" + "="*100])
         lines.extend(["                              CANDLES DATA CONTROLLER"])
@@ -236,4 +236,4 @@ class CandlesDataController(ControllerBase):
                 lines.extend([f"    {status} {candle_config.connector}.{candle_config.trading_pair}.{candle_config.interval}"])
 
         lines.extend(["\n" + "="*100 + "\n"])
-        return "\n".join(lines)
+        return lines

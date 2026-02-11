@@ -57,7 +57,7 @@ class BuyThreeTimesExample(ControllerBase):
             return [CreateExecutorAction(controller_id=self.config.id, executor_config=config)]
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> str:
         lines = []
         lines.append(f"Buy Three Times Example Status:")
         lines.append(f"  Buys completed: {self.buy_count}/{self.max_buys}")

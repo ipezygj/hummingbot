@@ -58,7 +58,7 @@ class LiquidationsMonitorController(ControllerBase):
         # This controller is for monitoring only, no trading actions
         return []
 
-    def format_status(self) -> str:
+    def to_format_status(self) -> str:
         lines = []
         lines.extend(["", "LIQUIDATIONS MONITOR"])
         lines.extend(["=" * 50])
