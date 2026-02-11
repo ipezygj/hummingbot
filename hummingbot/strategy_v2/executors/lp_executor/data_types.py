@@ -70,6 +70,9 @@ class LPExecutorState(BaseModel):
     base_fee: Decimal = Decimal("0")
     quote_fee: Decimal = Decimal("0")
 
+    # Price at ADD time for accurate P&L calculation
+    add_mid_price: Decimal = Decimal("0")
+
     # Rent tracking
     position_rent: Decimal = Decimal("0")  # SOL rent paid to create position (ADD only)
     position_rent_refunded: Decimal = Decimal("0")  # SOL rent refunded on close (REMOVE only)

@@ -244,11 +244,13 @@ class LPExecutor(ExecutorBase):
                 f"bounds: [{self.lp_position_state.lower_price} - {self.lp_position_state.upper_price}]"
             )
 
-            # Fetch pool info for current price
+            # Fetch pool info for current price and store as add_mid_price for P&L calculation
             await self.update_pool_info()
             current_price = Decimal(str(self._pool_info.price)) if self._pool_info else mid_price
+            self.lp_position_state.add_mid_price = current_price
 
             # Trigger event for database recording (lphistory command)
+            # Note: mid_price is the current MARKET price, not the position range midpoint
             connector._trigger_add_liquidity_event(
                 order_id=order_id,
                 exchange_order_id=signature,
@@ -262,7 +264,7 @@ class LPExecutor(ExecutorBase):
                 position_address=position_address,
                 base_amount=self.lp_position_state.base_amount,
                 quote_amount=self.lp_position_state.quote_amount,
-                mid_price=mid_price,
+                mid_price=current_price,
                 position_rent=self.lp_position_state.position_rent,
             )
 
@@ -394,7 +396,8 @@ class LPExecutor(ExecutorBase):
             )
 
             # Trigger event for database recording (lphistory command)
-            mid_price = (self.lp_position_state.lower_price + self.lp_position_state.upper_price) / Decimal("2")
+            # Note: mid_price is the current MARKET price, not the position range midpoint
+            current_price = Decimal(str(self._pool_info.price)) if self._pool_info else Decimal("0")
             connector._trigger_remove_liquidity_event(
                 order_id=order_id,
                 exchange_order_id=signature,
@@ -405,7 +408,7 @@ class LPExecutor(ExecutorBase):
                 position_address=self.lp_position_state.position_address,
                 lower_price=self.lp_position_state.lower_price,
                 upper_price=self.lp_position_state.upper_price,
-                mid_price=mid_price,
+                mid_price=current_price,
                 base_amount=self.lp_position_state.base_amount,
                 quote_amount=self.lp_position_state.quote_amount,
                 base_fee=self.lp_position_state.base_fee,
@@ -475,7 +478,8 @@ class LPExecutor(ExecutorBase):
 
         # Generate a synthetic order_id for this event
         order_id = connector.create_market_order_id(TradeType.RANGE, self.config.market.trading_pair)
-        mid_price = (self.lp_position_state.lower_price + self.lp_position_state.upper_price) / Decimal("2")
+        # Note: mid_price is the current MARKET price, not the position range midpoint
+        current_price = Decimal(str(self._pool_info.price)) if self._pool_info else Decimal("0")
 
         self.logger().info(
             f"Emitting synthetic close event for already-closed position: "
@@ -494,7 +498,7 @@ class LPExecutor(ExecutorBase):
             position_address=self.lp_position_state.position_address,
             lower_price=self.lp_position_state.lower_price,
             upper_price=self.lp_position_state.upper_price,
-            mid_price=mid_price,
+            mid_price=current_price,
             base_amount=self.lp_position_state.base_amount,
             quote_amount=self.lp_position_state.quote_amount,
             base_fee=self.lp_position_state.base_fee,
@@ -585,19 +589,23 @@ class LPExecutor(ExecutorBase):
 
         P&L = (current_position_value + fees_earned) - initial_value
 
+        Uses stored add_mid_price for initial value to match lphistory calculation.
         Works for both open positions and closed positions (using final returned amounts).
         """
         if self._pool_info is None or self._pool_info.price == 0:
             return Decimal("0")
         current_price = Decimal(str(self._pool_info.price))
 
-        # Initial value (from config)
+        # Use stored add_mid_price for initial value, fall back to current price if not set
+        add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
+
+        # Initial value (from config, valued at ADD time price)
         initial_value = (
-            self.config.base_amount * current_price +
+            self.config.base_amount * add_price +
             self.config.quote_amount
         )
 
-        # Current position value (tokens in position)
+        # Current position value (tokens in position, valued at current price)
         current_value = (
             self.lp_position_state.base_amount * current_price +
             self.lp_position_state.quote_amount
@@ -622,8 +630,11 @@ class LPExecutor(ExecutorBase):
             return Decimal("0")
         current_price = Decimal(str(self._pool_info.price))
 
+        # Use stored add_mid_price for initial value to match get_net_pnl_quote()
+        add_price = self.lp_position_state.add_mid_price if self.lp_position_state.add_mid_price > 0 else current_price
+
         initial_value = (
-            self.config.base_amount * current_price +
+            self.config.base_amount * add_price +
             self.config.quote_amount
         )
 
