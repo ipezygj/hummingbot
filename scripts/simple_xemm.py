@@ -32,6 +32,11 @@ class SimpleXEMMConfig(StrategyV2ConfigBase):
     max_order_age: int = Field(120, json_schema_extra={
         "prompt": "Max order age (in seconds)", "prompt_on_new": True})
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.maker_connector] = markets.get(self.maker_connector, set()) | {self.maker_trading_pair}
+        markets[self.taker_connector] = markets.get(self.taker_connector, set()) | {self.taker_trading_pair}
+        return markets
+
 
 class SimpleXEMM(StrategyV2Base):
     """
@@ -43,11 +48,6 @@ class SimpleXEMM(StrategyV2Base):
     the maker pair and hedges any filled trades in the taker pair. If the spread (difference between maker order price
     and taker hedge price) dips below min_spread, the bot refreshes the order
     """
-
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        markets[self.config.maker_connector] = markets.get(self.config.maker_connector, set()) | {self.config.maker_trading_pair}
-        markets[self.config.taker_connector] = markets.get(self.config.taker_connector, set()) | {self.config.taker_trading_pair}
-        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimpleXEMMConfig):
         super().__init__(connectors, config)

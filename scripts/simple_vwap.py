@@ -42,6 +42,10 @@ class VWAPConfig(StrategyV2ConfigBase):
         "prompt": lambda mi: "Delay time between orders (in seconds)",
         "prompt_on_new": True})
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.connector_name] = markets.get(self.connector_name, set()) | {self.trading_pair}
+        return markets
+
 
 class VWAPExample(StrategyV2Base):
     """
@@ -52,10 +56,6 @@ class VWAPExample(StrategyV2Base):
     - Total volume is expressed in quote asset rather than USD
     - Use of the rate oracle has been removed
     """
-
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        markets[self.config.connector_name] = markets.get(self.config.connector_name, set()) | {self.config.trading_pair}
-        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: VWAPConfig):
         super().__init__(connectors, config)

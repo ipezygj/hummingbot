@@ -29,15 +29,15 @@ class AMMDataFeedConfig(StrategyV2ConfigBase):
         "prompt": "Output file name (without extension, defaults to connector_chain_network_timestamp)",
         "prompt_on_new": False})
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        # Gateway connectors don't need market initialization
+        return markets
+
 
 class AMMDataFeedExample(StrategyV2Base):
     """
     This example shows how to use the AmmGatewayDataFeed to fetch prices from a DEX
     """
-
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        # Gateway connectors don't need market initialization
-        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: AMMDataFeedConfig):
         super().__init__(connectors, config)

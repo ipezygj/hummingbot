@@ -18,14 +18,14 @@ class DownloadTradesAndOrderBookSnapshotsConfig(StrategyV2ConfigBase):
     exchange: str = Field(default="binance_paper_trade")
     trading_pairs: list = Field(default=["ETH-USDT", "BTC-USDT"])
 
-
-class DownloadTradesAndOrderBookSnapshots(StrategyV2Base):
     def update_markets(self, markets: MarketDict) -> MarketDict:
         # Convert trading_pairs list to a set for consistency with the new pattern
-        trading_pairs_set = set(self.config.trading_pairs) if hasattr(self.config, 'trading_pairs') else set()
-        markets[self.config.exchange] = markets.get(self.config.exchange, set()) | trading_pairs_set
+        trading_pairs_set = set(self.trading_pairs) if hasattr(self, 'trading_pairs') else set()
+        markets[self.exchange] = markets.get(self.exchange, set()) | trading_pairs_set
         return markets
-    
+
+
+class DownloadTradesAndOrderBookSnapshots(StrategyV2Base):
     depth = int(os.getenv("DEPTH", 50))
     last_dump_timestamp = 0
     time_between_csv_dumps = 10

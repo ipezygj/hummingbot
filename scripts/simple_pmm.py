@@ -22,6 +22,10 @@ class SimplePMMConfig(StrategyV2ConfigBase):
     order_refresh_time: int = Field(15)
     price_type: str = Field("mid")
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.exchange] = markets.get(self.exchange, set()) | {self.trading_pair}
+        return markets
+
 
 class SimplePMM(StrategyV2Base):
     """
@@ -37,14 +41,10 @@ class SimplePMM(StrategyV2Base):
     create_timestamp = 0
     price_source = PriceType.MidPrice
 
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        markets[self.config.exchange] = markets.get(self.config.exchange, set()) | {self.config.trading_pair}
-        self.price_source = PriceType.LastTrade if self.config.price_type == "last" else PriceType.MidPrice
-        return markets
-
     def __init__(self, connectors: Dict[str, ConnectorBase], config: SimplePMMConfig):
         super().__init__(connectors, config)
         self.config = config
+        self.price_source = PriceType.LastTrade if self.config.price_type == "last" else PriceType.MidPrice
 
     def on_tick(self):
         if self.create_timestamp <= self.current_timestamp:

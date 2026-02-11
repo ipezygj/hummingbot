@@ -44,6 +44,11 @@ class XRPLSimpleArbConfig(StrategyV2ConfigBase):
     )
     test_xrpl_order: bool = Field(False, json_schema_extra={"prompt": "Test XRPL order", "prompt_on_new": True})
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets["xrpl"] = markets.get("xrpl", set()) | {self.trading_pair_xrpl}
+        markets[self.cex_exchange] = markets.get(self.cex_exchange, set()) | {self.trading_pair_cex}
+        return markets
+
 
 class XRPLSimpleArb(StrategyV2Base):
     """
@@ -51,11 +56,6 @@ class XRPLSimpleArb(StrategyV2Base):
     Remove liquidity if the price is outside the range.
     It uses a connector to get the current price and manage liquidity in AMM Pools
     """
-
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        markets["xrpl"] = markets.get("xrpl", set()) | {self.config.trading_pair_xrpl}
-        markets[self.config.cex_exchange] = markets.get(self.config.cex_exchange, set()) | {self.config.trading_pair_cex}
-        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: XRPLSimpleArbConfig):
         super().__init__(connectors, config)

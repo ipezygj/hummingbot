@@ -41,6 +41,10 @@ class LpPositionManagerConfig(StrategyV2ConfigBase):
     check_interval: int = Field(10, json_schema_extra={
         "prompt": "How often to check price in seconds (default: 10)", "prompt_on_new": False})
 
+    def update_markets(self, markets: MarketDict) -> MarketDict:
+        markets[self.connector] = markets.get(self.connector, set()) | {self.trading_pair}
+        return markets
+
 
 class LpPositionManager(StrategyV2Base):
     """
@@ -48,10 +52,6 @@ class LpPositionManager(StrategyV2Base):
     It monitors pool prices, opens a position when a target price is reached,
     and closes the position if the price moves out of range for a specified duration.
     """
-
-    def update_markets(self, markets: MarketDict) -> MarketDict:
-        markets[self.config.connector] = markets.get(self.config.connector, set()) | {self.config.trading_pair}
-        return markets
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: LpPositionManagerConfig):
         super().__init__(connectors, config)
