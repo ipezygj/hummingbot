@@ -36,6 +36,11 @@ class LPRebalancerConfig(ControllerConfigBase):
     total_amount_quote: Decimal = Field(default=Decimal("50"), json_schema_extra={"is_updatable": True})
     side: int = Field(default=1, json_schema_extra={"is_updatable": True})  # 0=BOTH, 1=BUY, 2=SELL
     position_width_pct: Decimal = Field(default=Decimal("0.5"), json_schema_extra={"is_updatable": True})
+    position_offset_pct: Decimal = Field(
+        default=Decimal("0.001"),
+        json_schema_extra={"is_updatable": True},
+        description="Offset from current price to ensure single-sided positions start out-of-range (e.g., 0.001 = 0.001%)"
+    )
 
     # Rebalancing
     rebalance_seconds: int = Field(default=60, json_schema_extra={"is_updatable": True})
@@ -437,10 +442,14 @@ class LPRebalancer(ControllerBase):
         Calculate position bounds based on side and price limits.
 
         Side 0 (BOTH): centered on current price, clamped to [buy_min, sell_max]
-        Side 1 (BUY): upper = min(price, buy_max), extends width below
-        Side 2 (SELL): lower = max(price, sell_min), extends width above
+        Side 1 (BUY): upper = price - offset (below current), extends width below
+        Side 2 (SELL): lower = price + offset (above current), extends width above
+
+        The offset ensures single-sided positions start out-of-range so they only
+        require one token (SOL for SELL, USDC for BUY).
         """
         width = self.config.position_width_pct / Decimal("100")
+        offset = self.config.position_offset_pct / Decimal("100")
 
         if side == 0:  # BOTH
             half_width = width / Decimal("2")
@@ -453,22 +462,26 @@ class LPRebalancer(ControllerBase):
                 upper_price = min(upper_price, self.config.sell_price_max)
 
         elif side == 1:  # BUY
-            # Anchor at min(current_price, buy_price_max), extend below
+            # Position BELOW current price so we only need quote token (USDC)
+            # Apply offset to ensure we start out-of-range
+            anchor_price = current_price * (Decimal("1") - offset)
             if self.config.buy_price_max:
-                upper_price = min(current_price, self.config.buy_price_max)
+                upper_price = min(anchor_price, self.config.buy_price_max)
             else:
-                upper_price = current_price
+                upper_price = anchor_price
             lower_price = upper_price * (Decimal("1") - width)
             # Clamp lower to floor
             if self.config.buy_price_min:
                 lower_price = max(lower_price, self.config.buy_price_min)
 
         else:  # SELL
-            # Anchor at max(current_price, sell_price_min), extend above
+            # Position ABOVE current price so we only need base token (SOL)
+            # Apply offset to ensure we start out-of-range
+            anchor_price = current_price * (Decimal("1") + offset)
             if self.config.sell_price_min:
-                lower_price = max(current_price, self.config.sell_price_min)
+                lower_price = max(anchor_price, self.config.sell_price_min)
             else:
-                lower_price = current_price
+                lower_price = anchor_price
             upper_price = lower_price * (Decimal("1") + width)
             # Clamp upper to ceiling
             if self.config.sell_price_max:
