@@ -192,8 +192,11 @@ class CandlesDataController(ControllerBase):
                             indicator_columns.append("EMA_14")
                             
                         display_columns = basic_columns + indicator_columns
-                        display_df = candles_df.tail(5)[display_columns]
-                        display_df = display_df.round(4)
+                        display_df = candles_df.tail(5)[display_columns].copy()
+                        
+                        # Round numeric columns only, handle datetime columns separately
+                        numeric_columns = display_df.select_dtypes(include=['number']).columns
+                        display_df[numeric_columns] = display_df[numeric_columns].round(4)
                         lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
                         
                         # Current values
