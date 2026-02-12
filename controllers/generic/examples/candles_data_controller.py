@@ -1,7 +1,7 @@
 from typing import List
 
 import pandas as pd
-import pandas_ta as ta  #noqa: F401
+import pandas_ta as ta  # noqa: F401
 from pydantic import Field, field_validator
 
 from hummingbot.core.data_type.common import MarketDict

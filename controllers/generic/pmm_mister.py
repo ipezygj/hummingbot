@@ -360,7 +360,7 @@ class PMMister(ControllerBase):
         Update processed data with enhanced condition tracking and analysis.
         """
         current_time = self.market_data_provider.time()
-        
+
         # Safely get reference price with fallback
         try:
             reference_price = self.market_data_provider.get_price_by_type(
@@ -550,6 +550,10 @@ class PMMister(ControllerBase):
 
         status = []
 
+        # Layout dimensions - set early for error cases
+        outer_width = 170
+        inner_width = outer_width - 4
+
         # Get all required data with safe fallbacks
         if not hasattr(self, 'processed_data') or not self.processed_data:
             # Return minimal status if processed_data is not available
@@ -557,7 +561,7 @@ class PMMister(ControllerBase):
             status.append(f"│ {'Initializing controller... please wait':<{inner_width}} │")
             status.append(f"╘{'═' * inner_width}╛")
             return status
-            
+
         base_pct = self.processed_data.get('current_base_pct', Decimal("0"))
         min_pct = self.config.min_base_pct
         max_pct = self.config.max_base_pct
@@ -575,13 +579,11 @@ class PMMister(ControllerBase):
         executor_stats = self.processed_data.get('executor_stats', {})
         refresh_tracking = self.processed_data.get('refresh_tracking', {})
 
-        # Layout dimensions - optimized for wider terminals
-        outer_width = 170  # Increased for better use of terminal space
-        inner_width = outer_width - 4
+        # Layout dimensions already set above
 
         # Smart column distribution for 5 columns
         col1_width = 28  # Cooldowns
-        col2_width = 35  # Price distances 
+        col2_width = 35  # Price distances
         col3_width = 28  # Effectivization
         col4_width = 25  # Refresh tracking
         col5_width = inner_width - col1_width - col2_width - col3_width - col4_width - 4  # Execution status
@@ -659,7 +661,7 @@ class PMMister(ControllerBase):
         # Refresh tracking information
         near_refresh = refresh_tracking.get('near_refresh', 0)
         refresh_ready = refresh_tracking.get('refresh_ready', 0)
-        
+
         refresh_info = [
             f"Near Refresh: {near_refresh}",
             f"Ready: {refresh_ready}",
@@ -1121,7 +1123,7 @@ class PMMister(ControllerBase):
         else:
             current_pct = Decimal("0")
             breakeven_price = None
-            
+
         below_min_position = current_pct < self.config.min_base_pct
         above_max_position = current_pct > self.config.max_base_pct
 
@@ -1225,22 +1227,22 @@ class PMMister(ControllerBase):
 
         # Get active non-trading executors
         active_not_trading = [e for e in self.executors_info if e.is_active and not e.is_trading]
-        
+
         for executor in active_not_trading:
             age = current_time - executor.timestamp
             time_to_refresh = max(0, self.config.executor_refresh_time - age)
             progress_pct = min(Decimal("1"), Decimal(str(age)) / Decimal(str(self.config.executor_refresh_time)))
-            
+
             ready = time_to_refresh == 0
             near_refresh = time_to_refresh <= (self.config.executor_refresh_time * 0.2)  # Within 20% of refresh time
-            
+
             if ready:
                 refresh_data["refresh_ready"] += 1
             elif near_refresh:
                 refresh_data["near_refresh"] += 1
 
             level_id = executor.custom_info.get("level_id", "unknown")
-            
+
             refresh_data["refresh_candidates"].append({
                 "executor_id": executor.id,
                 "level_id": level_id,
@@ -1256,24 +1258,23 @@ class PMMister(ControllerBase):
     def _format_refresh_bars(self, refresh_tracking: Dict, bar_width: int, inner_width: int) -> List[str]:
         """Format refresh progress bars"""
         lines = []
-        
+
         refresh_candidates = refresh_tracking.get('refresh_candidates', [])
         if not refresh_candidates:
             return lines
 
         lines.append(f"│ {'REFRESH PROGRESS:':<{inner_width}} │")
-        
+
         # Show up to 5 executors approaching refresh
         for candidate in refresh_candidates[:5]:
             level_id = candidate.get('level_id', 'unknown')
-            age = candidate.get('age', 0)
             time_to_refresh = candidate.get('time_to_refresh', 0)
             progress = float(candidate.get('progress_pct', 0))
             ready = candidate.get('ready', False)
             near_refresh = candidate.get('near_refresh', False)
-            
+
             bar = self._create_progress_bar(progress, bar_width // 2)
-            
+
             if ready:
                 status = "REFRESH NOW!"
                 icon = "🔄"
@@ -1283,12 +1284,12 @@ class PMMister(ControllerBase):
             else:
                 status = f"{time_to_refresh}s"
                 icon = "⏳"
-            
+
             lines.append(f"│ {icon} {level_id}: [{bar}] {status:<15} │")
-            
+
         if len(refresh_candidates) > 5:
             lines.append(f"│ {'... and ' + str(len(refresh_candidates) - 5) + ' more':<{inner_width}} │")
-        
+
         return lines
 
     def _format_price_graph(self, current_price: Decimal, breakeven_price: Optional[Decimal], inner_width: int) -> List[str]:
