@@ -2,7 +2,7 @@ import logging
 import math
 import os
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, List
 
 from pydantic import Field
 
@@ -20,6 +20,7 @@ class VWAPConfig(StrategyV2ConfigBase):
     """
 
     script_file_name: str = os.path.basename(__file__)
+    controllers_config: List[str] = []
     connector_name: str = Field("binance_paper_trade", json_schema_extra={
         "prompt": lambda mi: "Exchange where the bot will place orders",
         "prompt_on_new": True})

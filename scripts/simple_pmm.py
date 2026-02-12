@@ -14,6 +14,7 @@ from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2Confi
 
 class SimplePMMConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
+    controllers_config: List[str] = []
     exchange: str = Field("binance_paper_trade")
     trading_pair: str = Field("ETH-USDT")
     order_amount: Decimal = Field(0.01)

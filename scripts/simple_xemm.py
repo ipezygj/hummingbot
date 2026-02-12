@@ -1,6 +1,6 @@
 import os
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, List
 
 import pandas as pd
 from pydantic import Field
@@ -15,6 +15,7 @@ from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 
 class SimpleXEMMConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
+    controllers_config: List[str] = []
     maker_connector: str = Field("kucoin_paper_trade", json_schema_extra={
         "prompt": "Maker connector where the bot will place maker orders", "prompt_on_new": True})
     maker_trading_pair: str = Field("ETH-USDT", json_schema_extra={
