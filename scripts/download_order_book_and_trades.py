@@ -37,11 +37,11 @@ class DownloadTradesAndOrderBookSnapshots(StrategyV2Base):
     def __init__(self, connectors: Dict[str, ConnectorBase], config: DownloadTradesAndOrderBookSnapshotsConfig):
         super().__init__(connectors, config)
         self.config = config
-        
+
         # Initialize storage for each trading pair
         self.ob_temp_storage = {trading_pair: [] for trading_pair in config.trading_pairs}
         self.trades_temp_storage = {trading_pair: [] for trading_pair in config.trading_pairs}
-        
+
         self.create_order_book_and_trade_files()
         self.order_book_trade_event = SourceInfoEventForwarder(self._process_public_trade)
 

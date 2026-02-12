@@ -338,6 +338,7 @@ class ExecutorOrchestrator:
                     amount=position_summary.amount,
                     breakeven_price=position_summary.breakeven_price,
                     unrealized_pnl_quote=position_summary.unrealized_pnl_quote,
+                    realized_pnl_quote=position_summary.realized_pnl_quote,
                     cum_fees_quote=position_summary.cum_fees_quote,
                 )
                 # Store or update the position in the database

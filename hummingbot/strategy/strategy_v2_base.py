@@ -95,7 +95,6 @@ class StrategyV2ConfigBase(BaseClientModel):
             return []
         return v
 
-
     def load_controller_configs(self):
         loaded_configs = []
         for config_path in self.controllers_config:
@@ -167,7 +166,7 @@ class StrategyV2ConfigBase(BaseClientModel):
         """
         Update the markets dict with strategy-specific markets.
         Subclasses should override this method to add their markets.
-        
+
         :param markets: Current markets dictionary
         :return: Updated markets dictionary
         """
@@ -203,7 +202,7 @@ class StrategyV2Base(StrategyPyBase):
         """
         Update the markets dict with strategy-specific markets.
         Subclasses should override this method to add their markets.
-        
+
         :param config: Strategy configuration
         :param markets: Current markets dictionary
         :return: Updated markets dictionary
@@ -238,11 +237,11 @@ class StrategyV2Base(StrategyPyBase):
         # From controllers (after they are initialized)
         for controller in self.controllers.values():
             controller.initialize_candles()
-    
+
     def get_candles_df(self, connector_name: str, trading_pair: str, interval: str) -> pd.DataFrame:
         """
         Get candles data as DataFrame for the specified parameters.
-        
+
         :param connector_name: Name of the connector (e.g., 'binance')
         :param trading_pair: Trading pair (e.g., 'BTC-USDT')
         :param interval: Candle interval (e.g., '1m', '5m', '1h')
@@ -327,11 +326,11 @@ class StrategyV2Base(StrategyPyBase):
         Called when the strategy is stopped. Shuts down controllers, executors, and market data provider.
         """
         self._is_stop_triggered = True
-        
+
         # Stop controllers FIRST to prevent new executor actions
         for controller in self.controllers.values():
             controller.stop()
-        
+
         if self.listen_to_executor_actions_task:
             self.listen_to_executor_actions_task.cancel()
         await self.executor_orchestrator.stop(self.max_executors_close_attempts)

@@ -381,9 +381,9 @@ class TradingCore:
 
         try:
             strategy_class = next((member for member_name, member in inspect.getmembers(strategy_module)
-                                 if inspect.isclass(member) and
-                                 issubclass(member, StrategyV2Base) and
-                                 member is not StrategyV2Base))
+                                   if inspect.isclass(member) and
+                                   issubclass(member, StrategyV2Base) and
+                                   member is not StrategyV2Base))
         except StopIteration:
             raise InvalidScriptModule(f"The module {strategy_name} does not contain any subclass of StrategyV2Base")
 

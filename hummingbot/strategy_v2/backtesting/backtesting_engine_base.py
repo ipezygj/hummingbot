@@ -88,7 +88,7 @@ class BacktestingEngineBase:
         if not controller_config.id or controller_config.id.strip() == "":
             from hummingbot.strategy_v2.utils.common import generate_unique_id
             controller_config.id = generate_unique_id()
-        
+
         controller_class = self.__controller_class_cache.get_or_add(controller_config.controller_name, controller_config.get_controller_class)
         # controller_class = controller_config.get_controller_class()
         # Load historical candles

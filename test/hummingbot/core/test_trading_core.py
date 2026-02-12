@@ -5,6 +5,7 @@ from pathlib import Path
 from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCase
 from unittest.mock import AsyncMock, Mock, patch
 
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from hummingbot.client.config.client_config_map import ClientConfigMap
@@ -12,14 +13,12 @@ from hummingbot.client.config.config_helpers import ClientConfigAdapter
 from hummingbot.connector.connector_metrics_collector import DummyMetricsCollector, MetricsCollector
 from hummingbot.connector.exchange_base import ExchangeBase
 from hummingbot.core.clock import Clock
+from hummingbot.core.data_type.common import MarketDict
 from hummingbot.core.trading_core import StrategyType, TradingCore
 from hummingbot.exceptions import InvalidScriptModule
 from hummingbot.model.trade_fill import TradeFill
-from hummingbot.core.data_type.common import MarketDict
-from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy.strategy_base import StrategyBase
-
-from pydantic import Field
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 
 
 class MockStrategy(StrategyBase):

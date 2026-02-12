@@ -3,7 +3,6 @@ from typing import Dict, List
 
 import pandas as pd
 import pandas_ta as ta  # noqa: F401
-
 from pydantic import Field, field_validator
 
 from hummingbot.connector.connector_base import ConnectorBase
@@ -18,10 +17,10 @@ class CandlesExampleConfig(StrategyV2ConfigBase):
     This example demonstrates how to use candles without requiring any trading markets.
     """
     script_file_name: str = os.path.basename(__file__)
-    
+
     # Override controllers_config to ensure no controllers are loaded
     controllers_config: List[str] = Field(default=[], exclude=True)
-    
+
     # Candles configuration - user can modify these
     candles_config: List[CandlesConfig] = Field(
         default_factory=lambda: [
@@ -91,16 +90,16 @@ class CandlesExampleConfig(StrategyV2ConfigBase):
 class CandlesExample(StrategyV2Base):
     """
     This strategy demonstrates how to use candles data without requiring any trading markets.
-    
+
     Key Features:
     - Configurable candles via config.candles_config
     - No trading markets required
     - Uses MarketDataProvider for clean candles access
     - Displays technical indicators (RSI, Bollinger Bands, EMA)
     - Shows multiple timeframes in status
-    
+
     Available intervals: |1s|1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M|
-    
+
     The candles configuration is defined in the config class and automatically
     initialized by the MarketDataProvider. No manual candle management required!
     """
@@ -108,7 +107,7 @@ class CandlesExample(StrategyV2Base):
     def __init__(self, connectors: Dict[str, ConnectorBase], config: CandlesExampleConfig):
         super().__init__(connectors, config)
         # Note: self.config is already set by parent class
-        
+
         # Initialize candles based on config
         try:
             for candles_config in self.typed_config.candles_config:
@@ -117,7 +116,7 @@ class CandlesExample(StrategyV2Base):
         except Exception as e:
             self.logger().error(f"Error initializing candle feeds: {e}")
             raise
-    
+
     @property
     def typed_config(self) -> CandlesExampleConfig:
         """
@@ -155,10 +154,10 @@ class CandlesExample(StrategyV2Base):
         Displays all configured candles with technical indicators.
         """
         lines = []
-        lines.extend(["\n" + "="*100])
+        lines.extend(["\n" + "=" * 100])
         lines.extend(["                              CANDLES EXAMPLE - MARKET DATA"])
-        lines.extend(["="*100])
-        
+        lines.extend(["=" * 100])
+
         if self.all_candles_ready:
             for i, candle_config in enumerate(self.typed_config.candles_config):
                 # Get candles dataframe from market data provider
@@ -169,12 +168,12 @@ class CandlesExample(StrategyV2Base):
                     interval=candle_config.interval,
                     max_records=50  # Get enough data for indicators
                 )
-                
+
                 if candles_df is not None and not candles_df.empty:
                     try:
                         # Add technical indicators safely
                         candles_df = candles_df.copy()  # Avoid modifying original
-                        
+
                         # Only calculate indicators if we have enough data
                         if len(candles_df) >= 20:  # Need at least 20 periods for indicators
                             # Calculate indicators with error handling
@@ -182,12 +181,12 @@ class CandlesExample(StrategyV2Base):
                                 candles_df.ta.rsi(length=14, append=True)
                             except Exception:
                                 candles_df["RSI_14"] = None
-                            
+
                             try:
                                 candles_df.ta.bbands(length=20, std=2, append=True)
                             except Exception:
                                 candles_df["BBP_20_2.0"] = None
-                                
+
                             try:
                                 candles_df.ta.ema(length=14, append=True)
                             except Exception:
@@ -197,17 +196,17 @@ class CandlesExample(StrategyV2Base):
                             candles_df["RSI_14"] = None
                             candles_df["BBP_20_2.0"] = None
                             candles_df["EMA_14"] = None
-                        
+
                         candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
-                        
+
                         # Display candles info
-                        lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
-                        
+
                         # Show last 5 rows with basic columns
                         basic_columns = ["timestamp", "close", "volume"]
                         indicator_columns = []
-                        
+
                         # Only include indicators if they were calculated successfully
                         if "RSI_14" in candles_df.columns and candles_df["RSI_14"].notna().any():
                             indicator_columns.append("RSI_14")
@@ -215,39 +214,39 @@ class CandlesExample(StrategyV2Base):
                             indicator_columns.append("BBP_20_2.0")
                         if "EMA_14" in candles_df.columns and candles_df["EMA_14"].notna().any():
                             indicator_columns.append("EMA_14")
-                            
+
                         display_columns = basic_columns + indicator_columns
                         display_df = candles_df.tail(5)[display_columns]
                         display_df = display_df.round(4)
                         lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
-                        
+
                         # Current values
                         current = candles_df.iloc[-1]
                         lines.extend([""])
                         current_price = f"Current Price: ${current['close']:.4f}"
-                        
+
                         # Add indicator values if available
                         if "RSI_14" in candles_df.columns and pd.notna(current.get('RSI_14')):
                             current_price += f" | RSI: {current['RSI_14']:.2f}"
-                        
+
                         if "BBP_20_2.0" in candles_df.columns and pd.notna(current.get('BBP_20_2.0')):
                             current_price += f" | BB%: {current['BBP_20_2.0']:.3f}"
-                            
+
                         lines.extend([f"    {current_price}"])
-                        
+
                     except Exception as e:
                         # Fallback: show basic candle data without indicators
-                        lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
                         lines.extend([f"    Error calculating indicators: {e}"])
                         lines.extend([f"    Showing basic data only:"])
-                        
+
                         # Basic display without indicators
                         candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
                         basic_df = candles_df.tail(3)[["timestamp", "open", "high", "low", "close", "volume"]]
                         lines.extend(["    " + line for line in basic_df.to_string(index=False).split("\n")])
                 else:
-                    lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                    lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                     lines.extend(["    No data available yet..."])
         else:
             lines.extend(["\n⏳ Waiting for candles data to be ready..."])
@@ -260,5 +259,5 @@ class CandlesExample(StrategyV2Base):
                 status = "✅" if ready else "❌"
                 lines.extend([f"    {status} {candle_config.connector}.{candle_config.trading_pair}.{candle_config.interval}"])
 
-        lines.extend(["\n" + "="*100 + "\n"])
+        lines.extend(["\n" + "=" * 100 + "\n"])
         return "\n".join(lines)

@@ -3,7 +3,6 @@ from typing import List
 
 import pandas as pd
 import pandas_ta as ta  # noqa: F401
-
 from pydantic import Field
 
 from hummingbot.client.ui.interface_utils import format_df_for_printout

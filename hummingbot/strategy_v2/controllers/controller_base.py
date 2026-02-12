@@ -12,7 +12,11 @@ from hummingbot.core.data_type.common import MarketDict, PositionAction, PriceTy
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
-from hummingbot.strategy_v2.executors.order_executor.data_types import ExecutionStrategy, LimitChaserConfig, OrderExecutorConfig
+from hummingbot.strategy_v2.executors.order_executor.data_types import (
+    ExecutionStrategy,
+    LimitChaserConfig,
+    OrderExecutorConfig,
+)
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
 from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
@@ -187,7 +191,6 @@ class ControllerBase(RunnableBase):
         )
     )
     """
-
 
     def __init__(self, config: ControllerConfigBase, market_data_provider: MarketDataProvider,
                  actions_queue: asyncio.Queue, update_interval: float = 1.0):
