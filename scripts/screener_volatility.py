@@ -1,4 +1,5 @@
 import os
+from typing import List
 
 import pandas as pd
 import pandas_ta as ta  # noqa: F401
@@ -15,8 +16,9 @@ from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2Confi
 
 class VolatilityScreenerConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
+    controllers_config: List[str] = []
     exchange: str = Field(default="binance_perpetual")
-    trading_pairs: list = Field(default=["BTC-USDT", "ETH-USDT", "BNB-USDT", "NEO-USDT"])
+    trading_pairs: list = Field(default=["BTC-USDT", "ETH-USDT", "BNB-USDT", "SOL-USDT", "MET-USDT"])
 
     def update_markets(self, markets: MarketDict) -> MarketDict:
         # For screener strategies, we don't typically need to add the trading pairs to markets
@@ -94,9 +96,9 @@ class VolatilityScreener(StrategyV2Base):
 
             # adding bbands metrics
             df.ta.bbands(length=self.volatility_interval, append=True)
-            df["bbands_width_pct"] = df[f"BBB_{self.volatility_interval}_2.0"]
+            df["bbands_width_pct"] = df[f"BBB_{self.volatility_interval}_2.0_2.0"]
             df["bbands_width_pct_mean"] = df["bbands_width_pct"].rolling(self.volatility_interval).mean()
-            df["bbands_percentage"] = df[f"BBP_{self.volatility_interval}_2.0"]
+            df["bbands_percentage"] = df[f"BBP_{self.volatility_interval}_2.0_2.0"]
             df["natr"] = ta.natr(df["high"], df["low"], df["close"], length=self.volatility_interval)
             market_metrics[trading_pair_interval] = df.iloc[-1]
         volatility_metrics_df = pd.DataFrame(market_metrics).T
