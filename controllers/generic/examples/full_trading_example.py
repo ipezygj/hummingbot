@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from hummingbot.core.data_type.common import MarketDict, PriceType, TradeType
+from hummingbot.core.data_type.common import MarketDict, PriceType
 from hummingbot.strategy_v2.controllers import ControllerBase, ControllerConfigBase
 from hummingbot.strategy_v2.executors.position_executor.data_types import (
     ExecutionStrategy,
@@ -161,7 +161,7 @@ class FullTradingExample(ControllerBase):
             open_orders = self.processed_data["open_orders"]
             open_positions = self.processed_data["open_positions"]
 
-            lines.append(f"=== Beautiful Trading Example Controller ===")
+            lines.append("=== Beautiful Trading Example Controller ===")
             lines.append(f"Trading Pair: {self.config.trading_pair}")
             lines.append(f"Current Price: {mid_price:.6f}")
             lines.append(f"Open Orders: {len(open_orders)}")

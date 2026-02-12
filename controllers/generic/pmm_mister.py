@@ -550,7 +550,6 @@ class PMMister(ControllerBase):
 
         # Enhanced condition data
         cooldown_status = self.processed_data.get('cooldown_status', {})
-        price_analysis = self.processed_data.get('price_distance_analysis', {})
         effectivization = self.processed_data.get('effectivization_tracking', {})
         level_conditions = self.processed_data.get('level_conditions', {})
         executor_stats = self.processed_data.get('executor_stats', {})
@@ -596,10 +595,6 @@ class PMMister(ControllerBase):
             f"Config: {self.config.buy_cooldown_time}s/{self.config.sell_cooldown_time}s",
             ""
         ]
-
-        # Price distance information
-        buy_violations = len(price_analysis.get('buy', {}).get('violations', []))
-        sell_violations = len(price_analysis.get('sell', {}).get('violations', []))
 
         # Calculate actual distances for current levels
         current_buy_distance = ""
@@ -997,7 +992,6 @@ class PMMister(ControllerBase):
         for analysis in all_levels_analysis:
             level_id = analysis["level_id"]
             is_buy = level_id.startswith("buy")
-            trade_type = "buy" if is_buy else "sell"
 
             if is_buy and analysis["max_price"]:
                 current_distance = (reference_price - analysis["max_price"]) / reference_price

@@ -26,12 +26,7 @@ from hummingbot.client.config.config_helpers import (
 )
 from hummingbot.client.config.security import Security
 from hummingbot.client.hummingbot_application import HummingbotApplication
-from hummingbot.client.settings import (
-    SCRIPT_STRATEGIES_PATH,
-    SCRIPT_STRATEGY_CONF_DIR_PATH,
-    STRATEGIES_CONF_DIR_PATH,
-    AllConnectorSettings,
-)
+from hummingbot.client.settings import SCRIPT_STRATEGY_CONF_DIR_PATH, STRATEGIES_CONF_DIR_PATH, AllConnectorSettings
 from hummingbot.client.ui import login_prompt
 from hummingbot.client.ui.style import load_style
 from hummingbot.core.event.events import HummingbotUIEvent

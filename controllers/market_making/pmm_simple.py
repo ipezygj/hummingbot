@@ -1,7 +1,4 @@
 from decimal import Decimal
-from typing import List
-
-from pydantic import Field
 
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
     MarketMakingControllerBase,

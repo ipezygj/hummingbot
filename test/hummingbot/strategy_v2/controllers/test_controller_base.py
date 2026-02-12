@@ -4,7 +4,6 @@ from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCa
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from hummingbot.core.data_type.common import TradeType
-from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase, ExecutorFilter
 from hummingbot.strategy_v2.models.base import RunnableStatus

@@ -115,6 +115,7 @@ class MarketStatusController(ControllerBase):
                         "Volume (-1%)": volume_minus_1
                     })
                 except Exception as e:
+                    self.logger().error(f"Error getting market status: {e}")
                     data.append({
                         "Exchange": exchange.replace("_paper_trade", "").title(),
                         "Market": trading_pair,

@@ -60,7 +60,7 @@ class BuyThreeTimesExample(ControllerBase):
 
     def to_format_status(self) -> List[str]:
         lines = []
-        lines.append(f"Buy Three Times Example Status:")
+        lines.append("Buy Three Times Example Status:")
         lines.append(f"  Buys completed: {self.buy_count}/{self.max_buys}")
         lines.append(f"  Max buys reached: {self.buy_count >= self.max_buys}")
         if hasattr(self, 'processed_data') and self.processed_data:

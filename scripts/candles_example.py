@@ -239,7 +239,7 @@ class CandlesExample(StrategyV2Base):
                         lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
                         lines.extend([f"    Error calculating indicators: {e}"])
-                        lines.extend([f"    Showing basic data only:"])
+                        lines.extend(["    Showing basic data only:"])
 
                         # Basic display without indicators
                         candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")

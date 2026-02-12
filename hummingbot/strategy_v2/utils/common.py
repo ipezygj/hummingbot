@@ -2,7 +2,7 @@ import hashlib
 import random
 import time
 from enum import Enum
-from typing import List, Optional, Type, TypeVar
+from typing import List, Type, TypeVar
 
 import base58
 
