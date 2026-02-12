@@ -169,35 +169,35 @@ class PMMV1(ControllerBase):
         self.config = config
         self.market_data_provider.initialize_rate_sources([ConnectorPair(
             connector_name=config.connector_name, trading_pair=config.trading_pair)])
-        
+
         # Track when each level can next create orders (for filled_order_delay)
         self._level_next_create_timestamps: Dict[str, float] = {}
         # Track last seen executor states to detect fills
         self._last_seen_executors: Dict[str, bool] = {}
-        
+
     def _detect_filled_executors(self):
         """Detect executors that were filled (not cancelled)."""
         # Get current active executor IDs by level
         current_active_by_level = {}
         filled_levels = set()
-        
+
         for executor in self.executors_info:
             level_id = executor.custom_info.get("level_id", "")
-                
+
             if executor.is_active:
                 current_active_by_level[level_id] = True
             elif executor.close_type == CloseType.POSITION_HOLD:
                 # POSITION_HOLD means the order was filled
                 filled_levels.add(level_id)
-        
+
         # Check for levels that were active before but aren't now and were filled
         for level_id, was_active in self._last_seen_executors.items():
-            if (was_active and 
-                level_id not in current_active_by_level and 
-                level_id in filled_levels):
+            if (was_active and
+                level_id not in current_active_by_level and
+                    level_id in filled_levels):
                 # This level was active before, not now, and was filled
                 self._handle_filled_executor(level_id)
-        
+
         # Update last seen state
         self._last_seen_executors = current_active_by_level.copy()
 
@@ -205,7 +205,7 @@ class PMMV1(ControllerBase):
         """Set the next create timestamp for a level when its executor is filled."""
         current_time = self.market_data_provider.time()
         self._level_next_create_timestamps[level_id] = current_time + self.config.filled_order_delay
-        
+
         # Log the filled order delay
         self.logger().info(f"Order on level {level_id} filled. Next order for this level can be created after {self.config.filled_order_delay}s delay.")
 
@@ -229,7 +229,7 @@ class PMMV1(ControllerBase):
         """
         # Detect filled executors (executors that disappeared since last check)
         self._detect_filled_executors()
-        
+
         reference_price = self._get_reference_price()
 
         # Calculate inventory metrics for skew
@@ -389,7 +389,7 @@ class PMMV1(ControllerBase):
         # Don't create new actions if the controller is being stopped
         if self.status == RunnableStatus.TERMINATED:
             return []
-            
+
         actions = []
         actions.extend(self.create_actions_proposal())
         actions.extend(self.stop_actions_proposal())
@@ -432,7 +432,6 @@ class PMMV1(ControllerBase):
             side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
             price = reference_price * (Decimal("1") + side_multiplier * spread_in_pct)
 
-
             # Apply inventory skew to order amount (already in base asset)
             amount = self.config.order_amount * skew
             amount = self.market_data_provider.quantize_order_amount(
@@ -465,7 +464,7 @@ class PMMV1(ControllerBase):
         - Its filled_order_delay period hasn't expired yet
         """
         current_time = self.market_data_provider.time()
-        
+
         # Get levels with active executors
         active_levels = self.filter_executors(
             executors=self.executors_info,
@@ -643,8 +642,6 @@ class PMMV1(ControllerBase):
                 return False
 
         return True
-
-
 
     def _get_executor_config(
         self, level_id: str, price: Decimal, amount: Decimal, trade_type: TradeType

@@ -1,4 +1,5 @@
 from typing import List
+
 from pydantic import Field
 
 from hummingbot.client.ui.interface_utils import format_df_for_printout
@@ -24,7 +25,7 @@ class LiquidationsMonitorController(ControllerBase):
     def __init__(self, config: LiquidationsMonitorControllerConfig, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
         self.config = config
-        
+
         # Initialize liquidations feed
         self.binance_liquidations_config = LiquidationsConfig(
             connector="binance",  # the source for liquidation data (currently only binance is supported)
@@ -39,12 +40,12 @@ class LiquidationsMonitorController(ControllerBase):
             "feed_ready": self.binance_liquidations_feed.ready,
             "trading_pairs": self.config.liquidations_trading_pairs
         }
-        
+
         if self.binance_liquidations_feed.ready:
             try:
                 # Get combined liquidations dataframe
                 liquidations_data["combined_df"] = self.binance_liquidations_feed.liquidations_df()
-                
+
                 # Get individual trading pair dataframes
                 liquidations_data["individual_dfs"] = {}
                 for trading_pair in self.config.liquidations_trading_pairs:
@@ -52,7 +53,7 @@ class LiquidationsMonitorController(ControllerBase):
             except Exception as e:
                 self.logger().error(f"Error getting liquidations data: {e}")
                 liquidations_data["error"] = str(e)
-        
+
         self.processed_data = liquidations_data
 
     def determine_executor_actions(self) -> list[ExecutorAction]:

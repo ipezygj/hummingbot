@@ -9,7 +9,6 @@ from pydantic_core.core_schema import ValidationInfo
 from talib import MA_Type
 
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
-
 from hummingbot.strategy_v2.controllers.directional_trading_controller_base import (
     DirectionalTradingControllerBase,
     DirectionalTradingControllerConfigBase,

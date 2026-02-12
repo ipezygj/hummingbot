@@ -1,6 +1,7 @@
 from typing import List
-from pydantic import Field
+
 import pandas as pd
+from pydantic import Field
 
 from hummingbot.core.data_type.common import MarketDict, PriceType
 from hummingbot.strategy_v2.controllers import ControllerBase, ControllerConfigBase
@@ -23,7 +24,7 @@ class MarketStatusController(ControllerBase):
     def __init__(self, config: MarketStatusControllerConfig, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
         self.config = config
-    
+
     @property
     def ready_to_trade(self) -> bool:
         """
@@ -57,7 +58,7 @@ class MarketStatusController(ControllerBase):
                 }
         else:
             market_status_data = {"ready_to_trade": False}
-        
+
         self.processed_data = market_status_data
 
     def determine_executor_actions(self) -> list[ExecutorAction]:
@@ -67,16 +68,16 @@ class MarketStatusController(ControllerBase):
     def to_format_status(self) -> List[str]:
         if not self.ready_to_trade:
             return ["Market connectors are not ready."]
-        
+
         lines = []
         lines.extend(["", "  Market Status Data Frame:"])
-        
+
         try:
             market_status_df = self.get_market_status_df_with_depth()
             lines.extend(["    " + line for line in market_status_df.to_string(index=False).split("\n")])
         except Exception as e:
             lines.extend([f"    Error: {str(e)}"])
-        
+
         return lines
 
     def get_market_status_df_with_depth(self):
@@ -90,7 +91,7 @@ class MarketStatusController(ControllerBase):
                     best_ask = self.market_data_provider.get_price_by_type(exchange, trading_pair, PriceType.BestAsk)
                     best_bid = self.market_data_provider.get_price_by_type(exchange, trading_pair, PriceType.BestBid)
                     mid_price = self.market_data_provider.get_price_by_type(exchange, trading_pair, PriceType.MidPrice)
-                    
+
                     # Calculate volumes at +/-1% from mid price
                     volume_plus_1 = None
                     volume_minus_1 = None
@@ -103,7 +104,7 @@ class MarketStatusController(ControllerBase):
                         except Exception:
                             volume_plus_1 = "N/A"
                             volume_minus_1 = "N/A"
-                    
+
                     data.append({
                         "Exchange": exchange.replace("_paper_trade", "").title(),
                         "Market": trading_pair,
@@ -118,12 +119,12 @@ class MarketStatusController(ControllerBase):
                         "Exchange": exchange.replace("_paper_trade", "").title(),
                         "Market": trading_pair,
                         "Best Bid": "Error",
-                        "Best Ask": "Error", 
+                        "Best Ask": "Error",
                         "Mid Price": "Error",
                         "Volume (+1%)": "Error",
                         "Volume (-1%)": "Error"
                     })
-        
+
         market_status_df = pd.DataFrame(data)
         market_status_df.sort_values(by=["Market"], inplace=True)
         return market_status_df

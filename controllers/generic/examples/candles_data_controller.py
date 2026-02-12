@@ -2,7 +2,6 @@ from typing import List
 
 import pandas as pd
 import pandas_ta as ta
-
 from pydantic import Field, field_validator
 
 from hummingbot.core.data_type.common import MarketDict
@@ -13,7 +12,7 @@ from hummingbot.strategy_v2.models.executor_actions import ExecutorAction
 
 class CandlesDataControllerConfig(ControllerConfigBase):
     controller_name: str = "examples.candles_data_controller"
-    
+
     # Candles configuration - user can modify these
     candles_config: List[CandlesConfig] = Field(
         default_factory=lambda: [
@@ -80,7 +79,7 @@ class CandlesDataController(ControllerBase):
     def __init__(self, config: CandlesDataControllerConfig, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
         self.config = config
-        
+
         # Initialize candles based on config
         try:
             for candles_config in self.config.candles_config:
@@ -119,7 +118,7 @@ class CandlesDataController(ControllerBase):
                 if candles_df is not None and not candles_df.empty:
                     try:
                         candles_df = candles_df.copy()
-                        
+
                         # Calculate indicators if enough data
                         if len(candles_df) >= 20:
                             try:
@@ -128,11 +127,11 @@ class CandlesDataController(ControllerBase):
                                 candles_df.ta.ema(length=14, append=True)
                             except Exception as e:
                                 self.logger().warning(f"Error calculating indicators: {e}")
-                        
+
                         candles_data[f"{candle_config.connector}_{candle_config.trading_pair}_{candle_config.interval}"] = candles_df
                     except Exception as e:
                         self.logger().error(f"Error processing candles data: {e}")
-        
+
         self.processed_data = {"candles_data": candles_data, "all_candles_ready": self.all_candles_ready}
 
     def determine_executor_actions(self) -> list[ExecutorAction]:
@@ -141,10 +140,10 @@ class CandlesDataController(ControllerBase):
 
     def to_format_status(self) -> List[str]:
         lines = []
-        lines.extend(["\n" + "="*100])
+        lines.extend(["\n" + "=" * 100])
         lines.extend(["                              CANDLES DATA CONTROLLER"])
-        lines.extend(["="*100])
-        
+        lines.extend(["=" * 100])
+
         if self.all_candles_ready:
             for i, candle_config in enumerate(self.config.candles_config):
                 candles_df = self.market_data_provider.get_candles_df(
@@ -153,11 +152,11 @@ class CandlesDataController(ControllerBase):
                     interval=candle_config.interval,
                     max_records=50
                 )
-                
+
                 if candles_df is not None and not candles_df.empty:
                     try:
                         candles_df = candles_df.copy()
-                        
+
                         # Only calculate indicators if we have enough data
                         if len(candles_df) >= 20:
                             try:
@@ -172,17 +171,17 @@ class CandlesDataController(ControllerBase):
                             candles_df["RSI_14"] = None
                             candles_df["BBP_20_2.0"] = None
                             candles_df["EMA_14"] = None
-                        
+
                         candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
-                        
+
                         # Display candles info
-                        lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
-                        
+
                         # Show last 5 rows with basic columns
                         basic_columns = ["timestamp", "close", "volume"]
                         indicator_columns = []
-                        
+
                         # Only include indicators if they were calculated successfully
                         if "RSI_14" in candles_df.columns and candles_df["RSI_14"].notna().any():
                             indicator_columns.append("RSI_14")
@@ -190,42 +189,42 @@ class CandlesDataController(ControllerBase):
                             indicator_columns.append("BBP_20_2.0")
                         if "EMA_14" in candles_df.columns and candles_df["EMA_14"].notna().any():
                             indicator_columns.append("EMA_14")
-                            
+
                         display_columns = basic_columns + indicator_columns
                         display_df = candles_df.tail(5)[display_columns].copy()
-                        
+
                         # Round numeric columns only, handle datetime columns separately
                         numeric_columns = display_df.select_dtypes(include=['number']).columns
                         display_df[numeric_columns] = display_df[numeric_columns].round(4)
                         lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
-                        
+
                         # Current values
                         current = candles_df.iloc[-1]
                         lines.extend([""])
                         current_price = f"Current Price: ${current['close']:.4f}"
-                        
+
                         # Add indicator values if available
                         if "RSI_14" in candles_df.columns and pd.notna(current.get('RSI_14')):
                             current_price += f" | RSI: {current['RSI_14']:.2f}"
-                        
+
                         if "BBP_20_2.0" in candles_df.columns and pd.notna(current.get('BBP_20_2.0')):
                             current_price += f" | BB%: {current['BBP_20_2.0']:.3f}"
-                            
+
                         lines.extend([f"    {current_price}"])
-                        
+
                     except Exception as e:
                         # Fallback: show basic candle data without indicators
-                        lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
                         lines.extend([f"    Error calculating indicators: {e}"])
                         lines.extend([f"    Showing basic data only:"])
-                        
+
                         # Basic display without indicators
                         candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
                         basic_df = candles_df.tail(3)[["timestamp", "open", "high", "low", "close", "volume"]]
                         lines.extend(["    " + line for line in basic_df.to_string(index=False).split("\n")])
                 else:
-                    lines.extend([f"\n[{i+1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                    lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                     lines.extend(["    No data available yet..."])
         else:
             lines.extend(["\n⏳ Waiting for candles data to be ready..."])
@@ -238,5 +237,5 @@ class CandlesDataController(ControllerBase):
                 status = "✅" if ready else "❌"
                 lines.extend([f"    {status} {candle_config.connector}.{candle_config.trading_pair}.{candle_config.interval}"])
 
-        lines.extend(["\n" + "="*100 + "\n"])
+        lines.extend(["\n" + "=" * 100 + "\n"])
         return lines

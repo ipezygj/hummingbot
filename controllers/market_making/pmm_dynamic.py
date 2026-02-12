@@ -6,7 +6,6 @@ from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
-
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
     MarketMakingControllerBase,
     MarketMakingControllerConfigBase,

@@ -6,10 +6,10 @@ from pydantic_core.core_schema import ValidationInfo
 
 from hummingbot.core.data_type.common import MarketDict, OrderType, PositionMode, PriceType, TradeType
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase
-from hummingbot.strategy_v2.utils.common import parse_comma_separated_list, parse_enum_value
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, ExecutorAction, StopExecutorAction
+from hummingbot.strategy_v2.utils.common import parse_comma_separated_list, parse_enum_value
 
 
 class PMMisterConfig(ControllerConfigBase):
@@ -253,7 +253,7 @@ class PMMister(ControllerBase):
                 })
                 if len(self.order_history) > self.max_order_history:
                     self.order_history.pop(0)
-                
+
                 create_actions.append(CreateExecutorAction(
                     controller_id=self.config.id,
                     executor_config=executor_config
@@ -306,7 +306,7 @@ class PMMister(ControllerBase):
             if (has_active_not_trading or
                 has_too_many_executors or
                 has_active_cooldown or
-                price_distance_violated):
+                    price_distance_violated):
                 working_levels_ids.append(level_id)
                 continue
         return self.get_not_active_levels_ids(working_levels_ids)
@@ -361,7 +361,7 @@ class PMMister(ControllerBase):
         reference_price = self.market_data_provider.get_price_by_type(
             self.config.connector_name, self.config.trading_pair, PriceType.MidPrice
         )
-        
+
         # Update price history for visualization
         self.price_history.append({
             'timestamp': current_time,
@@ -555,12 +555,18 @@ class PMMister(ControllerBase):
         level_conditions = self.processed_data.get('level_conditions', {})
         executor_stats = self.processed_data.get('executor_stats', {})
 
-        # Layout dimensions
-        outer_width = 150
+        # Layout dimensions - optimized for wider terminals
+        outer_width = 170  # Increased for better use of terminal space
         inner_width = outer_width - 4
-        quarter_width = inner_width // 4 - 1
+
+        # Smart column distribution - give more space to info-heavy sections
+        col1_width = 35  # Cooldowns
+        col2_width = 45  # Price distances (needs more space)
+        col3_width = 35  # Effectivization
+        col4_width = inner_width - col1_width - col2_width - col3_width - 3  # Execution status (remaining)
+
         half_width = inner_width // 2 - 1
-        bar_width = inner_width - 20
+        bar_width = inner_width - 25
 
         # Header with enhanced info
         status.append("╒" + "═" * inner_width + "╕")
@@ -576,9 +582,9 @@ class PMMister(ControllerBase):
         # REAL-TIME CONDITIONS DASHBOARD
         status.append(f"├{'─' * inner_width}┤")
         status.append(f"│ {'🔄 REAL-TIME CONDITIONS DASHBOARD':<{inner_width}} │")
-        status.append(f"├{'─' * quarter_width}┬{'─' * quarter_width}┬{'─' * quarter_width}┬{'─' * quarter_width}┤")
-        status.append(f"│ {'COOLDOWNS':<{quarter_width}} │ {'PRICE DISTANCES':<{quarter_width}} │ {'EFFECTIVIZATION':<{quarter_width}} │ {'EXECUTION STATUS':<{quarter_width}} │")
-        status.append(f"├{'─' * quarter_width}┼{'─' * quarter_width}┼{'─' * quarter_width}┼{'─' * quarter_width}┤")
+        status.append(f"├{'─' * col1_width}┬{'─' * col2_width}┬{'─' * col3_width}┬{'─' * col4_width}┤")
+        status.append(f"│ {'COOLDOWNS':<{col1_width}} │ {'PRICE DISTANCES & ZONES':<{col2_width}} │ {'EFFECTIVIZATION':<{col3_width}} │ {'EXECUTION STATUS':<{col4_width}} │")
+        status.append(f"├{'─' * col1_width}┼{'─' * col2_width}┼{'─' * col3_width}┼{'─' * col4_width}┤")
 
         # Cooldown information
         buy_cooldown = cooldown_status.get('buy', {})
@@ -594,16 +600,16 @@ class PMMister(ControllerBase):
         # Price distance information
         buy_violations = len(price_analysis.get('buy', {}).get('violations', []))
         sell_violations = len(price_analysis.get('sell', {}).get('violations', []))
-        
+
         # Calculate actual distances for current levels
         current_buy_distance = ""
         current_sell_distance = ""
-        
+
         all_levels_analysis = self.analyze_all_levels()
         for analysis in all_levels_analysis:
             level_id = analysis["level_id"]
             is_buy = level_id.startswith("buy")
-            
+
             if is_buy and analysis["max_price"]:
                 distance = (current_price - analysis["max_price"]) / current_price
                 current_buy_distance = f"({distance:.3%})"
@@ -611,11 +617,15 @@ class PMMister(ControllerBase):
                 distance = (analysis["min_price"] - current_price) / current_price
                 current_sell_distance = f"({distance:.3%})"
 
+        # Enhanced price info with more details
+        buy_violation_marker = " ⚠️" if current_buy_distance and "(0.0" in current_buy_distance else ""
+        sell_violation_marker = " ⚠️" if current_sell_distance and "(0.0" in current_sell_distance else ""
+
         price_info = [
-            f"BUY Min: {self.config.min_buy_price_distance_pct:.3%} {current_buy_distance}",
-            f"SELL Min: {self.config.min_sell_price_distance_pct:.3%} {current_sell_distance}",
-            f"Current: ${current_price:.2f}",
-            f"Breakeven: ${breakeven:.2f}" if breakeven else "Breakeven: N/A"
+            f"BUY Min: {self.config.min_buy_price_distance_pct:.3%} {current_buy_distance}{buy_violation_marker}",
+            f"SELL Min: {self.config.min_sell_price_distance_pct:.3%} {current_sell_distance}{sell_violation_marker}",
+            f"Current Price: ${current_price:.2f}",
+            f"Breakeven: ${breakeven:.2f} (Gap: {((current_price - breakeven) / breakeven * 100):+.2f}%)" if breakeven else "Breakeven: N/A"
         ]
 
         # Effectivization information
@@ -642,9 +652,9 @@ class PMMister(ControllerBase):
             f"Refresh Due: {executor_stats.get('refresh_candidates', 0)}"
         ]
 
-        # Display conditions in columns
+        # Display conditions in columns with optimized widths
         for cool_line, price_line, effect_line, exec_line in zip_longest(cooldown_info, price_info, effect_info, execution_info, fillvalue=""):
-            status.append(f"│ {cool_line:<{quarter_width}} │ {price_line:<{quarter_width}} │ {effect_line:<{quarter_width}} │ {exec_line:<{quarter_width}} │")
+            status.append(f"│ {cool_line:<{col1_width}} │ {price_line:<{col2_width}} │ {effect_line:<{col3_width}} │ {exec_line:<{col4_width}} │")
 
         # LEVEL-BY-LEVEL ANALYSIS
         status.append(f"├{'─' * inner_width}┤")
@@ -838,8 +848,8 @@ class PMMister(ControllerBase):
         return lines
 
     def _format_position_visualization(self, base_pct: Decimal, target_pct: Decimal, min_pct: Decimal,
-                                     max_pct: Decimal, skew_pct: Decimal, pnl: Decimal,
-                                     bar_width: int, inner_width: int) -> List[str]:
+                                       max_pct: Decimal, skew_pct: Decimal, pnl: Decimal,
+                                       bar_width: int, inner_width: int) -> List[str]:
         """Format enhanced position visualization"""
         lines = []
 
@@ -960,7 +970,7 @@ class PMMister(ControllerBase):
 
             latest_update = max(latest_updates)
             cooldown_time = (self.config.buy_cooldown_time if trade_type == "buy"
-                           else self.config.sell_cooldown_time)
+                             else self.config.sell_cooldown_time)
 
             time_since_update = current_time - latest_update
             remaining_time = max(0, cooldown_time - time_since_update)
@@ -1172,76 +1182,76 @@ class PMMister(ControllerBase):
     def _format_price_graph(self, current_price: Decimal, breakeven_price: Optional[Decimal], inner_width: int) -> List[str]:
         """Format price graph with order zones and history"""
         lines = []
-        
+
         if len(self.price_history) < 10:
             lines.append(f"│ {'Collecting price data...':<{inner_width}} │")
             return lines
-        
+
         # Get last 30 price points for the graph
         recent_prices = [p['price'] for p in self.price_history[-30:]]
         min_price = min(recent_prices)
         max_price = max(recent_prices)
-        
+
         # Calculate price range with some padding
         price_range = max_price - min_price
         if price_range == 0:
             price_range = current_price * Decimal('0.01')  # 1% range if no movement
-        
+
         padding = price_range * Decimal('0.1')  # 10% padding
         graph_min = min_price - padding
         graph_max = max_price + padding
         graph_range = graph_max - graph_min
-        
+
         # Calculate order zones
         buy_distance = current_price * self.config.min_buy_price_distance_pct
         sell_distance = current_price * self.config.min_sell_price_distance_pct
         buy_zone_price = current_price - buy_distance
         sell_zone_price = current_price + sell_distance
-        
+
         # Graph dimensions
         graph_width = inner_width - 20  # Leave space for price labels and borders
         graph_height = 8
-        
+
         # Create the graph
         graph_lines = []
         for row in range(graph_height):
             # Calculate price level for this row (top to bottom)
             price_level = graph_max - (Decimal(row) / Decimal(graph_height - 1)) * graph_range
             line = ""
-            
+
             # Price label (left side)
             price_label = f"{float(price_level):6.2f}"
             line += price_label + " ┼"
-            
+
             # Graph data
             for col in range(graph_width):
                 # Calculate which price point this column represents
                 col_index = int((col / graph_width) * len(recent_prices))
                 if col_index >= len(recent_prices):
                     col_index = len(recent_prices) - 1
-                
+
                 price_at_col = recent_prices[col_index]
-                
+
                 # Determine what to show at this position
                 char = "─"  # Default horizontal line
-                
+
                 # Check if current price line crosses this position
                 if abs(float(price_at_col - price_level)) < float(graph_range) / (graph_height * 2):
                     if price_at_col == current_price:
                         char = "●"  # Current price marker
                     else:
                         char = "·"  # Price history point
-                
+
                 # Mark breakeven line
                 if breakeven_price and abs(float(breakeven_price - price_level)) < float(graph_range) / (graph_height * 2):
                     char = "="  # Breakeven line
-                
+
                 # Mark order zones
                 if abs(float(buy_zone_price - price_level)) < float(graph_range) / (graph_height * 4):
                     char = "B"  # Buy zone boundary
                 elif abs(float(sell_zone_price - price_level)) < float(graph_range) / (graph_height * 4):
                     char = "S"  # Sell zone boundary
-                
+
                 # Mark recent orders
                 for order in self.order_history[-10:]:  # Last 10 orders
                     order_price = order['price']
@@ -1251,9 +1261,9 @@ class PMMister(ControllerBase):
                         else:
                             char = "s"  # Sell order
                         break
-                
+
                 line += char
-            
+
             # Add right border and annotations
             annotation = ""
             if abs(float(current_price - price_level)) < float(graph_range) / (graph_height * 2):
@@ -1264,23 +1274,23 @@ class PMMister(ControllerBase):
                 annotation = " ← Sell zone"
             elif abs(float(buy_zone_price - price_level)) < float(graph_range) / (graph_height * 4):
                 annotation = " ← Buy zone"
-            
+
             line += annotation
             graph_lines.append(line)
-        
+
         # Format graph lines with proper padding
         for graph_line in graph_lines:
             lines.append(f"│ {graph_line:<{inner_width}} │")
-        
+
         # Add legend
         lines.append(f"│ {'Legend: ● Current price  = Breakeven  B/S Zone boundaries  b/s Recent orders':<{inner_width}} │")
-        
+
         # Add current metrics
         metrics_line = f"Distance req: Buy {self.config.min_buy_price_distance_pct:.3%} | Sell {self.config.min_sell_price_distance_pct:.3%}"
         if breakeven_price:
             distance_to_breakeven = ((current_price - breakeven_price) / current_price) if breakeven_price > 0 else Decimal(0)
             metrics_line += f" | Breakeven gap: {distance_to_breakeven:+.2%}"
-        
+
         lines.append(f"│ {metrics_line:<{inner_width}} │")
-        
+
         return lines
