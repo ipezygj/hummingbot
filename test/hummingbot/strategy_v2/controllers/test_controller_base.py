@@ -3,9 +3,11 @@ from decimal import Decimal
 from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCase
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
-from hummingbot.core.data_type.common import TradeType
+from hummingbot.core.data_type.common import PriceType, TradeType
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase, ExecutorFilter
+from hummingbot.strategy_v2.executors.order_executor.data_types import ExecutionStrategy, LimitChaserConfig
+from hummingbot.strategy_v2.executors.position_executor.data_types import TripleBarrierConfig
 from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executors import CloseType
 from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
@@ -476,3 +478,241 @@ class TestControllerBase(IsolatedAsyncioWrapperTestCase):
         filtered = self.controller.filter_executors(filter_func=binance_filter)
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0].id, "exec1")
+
+    # Tests for Trading API functionality
+
+    def test_buy_market_order(self):
+        """Test creating a market buy order."""
+        # Mock market data provider
+        self.mock_market_data_provider.time.return_value = 1640995200000
+        self.mock_market_data_provider.get_price_by_type.return_value = Decimal("2000")
+        self.mock_market_data_provider.ready = True
+        
+        executor_id = self.controller.buy(
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            amount=Decimal("0.1"),
+            execution_strategy=ExecutionStrategy.MARKET
+        )
+        
+        self.assertIsNotNone(executor_id)
+        self.assertNotEqual(executor_id, "")
+        
+        # Check that action was added to queue using put_nowait
+        self.mock_actions_queue.put_nowait.assert_called_once()
+        # Verify the action is a CreateExecutorAction
+        args = self.mock_actions_queue.put_nowait.call_args[0][0]
+        self.assertEqual(len(args), 1)  # One action in the list
+
+    def test_sell_limit_order(self):
+        """Test creating a limit sell order."""
+        # Mock market data provider
+        self.mock_market_data_provider.time.return_value = 1640995200000
+        self.mock_market_data_provider.ready = True
+        
+        executor_id = self.controller.sell(
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            amount=Decimal("0.1"),
+            price=Decimal("2100"),
+            execution_strategy=ExecutionStrategy.LIMIT_MAKER
+        )
+        
+        self.assertIsNotNone(executor_id)
+        self.assertNotEqual(executor_id, "")
+        
+        # Check that action was added to queue using put_nowait
+        self.mock_actions_queue.put_nowait.assert_called_once()
+
+    def test_buy_with_triple_barrier(self):
+        """Test creating a buy order with triple barrier risk management."""
+        # Mock market data provider
+        self.mock_market_data_provider.time.return_value = 1640995200000
+        self.mock_market_data_provider.ready = True
+        
+        triple_barrier = TripleBarrierConfig(
+            stop_loss=Decimal("0.02"),
+            take_profit=Decimal("0.03"),
+            time_limit=300
+        )
+        
+        executor_id = self.controller.buy(
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            amount=Decimal("0.1"),
+            triple_barrier_config=triple_barrier
+        )
+        
+        self.assertIsNotNone(executor_id)
+        self.assertNotEqual(executor_id, "")
+        
+        # Check that action was added to queue using put_nowait
+        self.mock_actions_queue.put_nowait.assert_called_once()
+
+    def test_buy_with_limit_chaser(self):
+        """Test creating a buy order with limit chaser strategy."""
+        # Mock market data provider
+        self.mock_market_data_provider.time.return_value = 1640995200000
+        self.mock_market_data_provider.ready = True
+        
+        chaser_config = LimitChaserConfig(
+            distance=Decimal("0.001"),
+            refresh_threshold=Decimal("0.002")
+        )
+        
+        executor_id = self.controller.buy(
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            amount=Decimal("0.1"),
+            execution_strategy=ExecutionStrategy.LIMIT_CHASER,
+            chaser_config=chaser_config
+        )
+        
+        self.assertIsNotNone(executor_id)
+        self.assertNotEqual(executor_id, "")
+        
+        # Check that action was added to queue using put_nowait
+        self.mock_actions_queue.put_nowait.assert_called_once()
+
+    def test_cancel_order(self):
+        """Test canceling an order by executor ID."""
+        # Setup mock executor
+        mock_executor = self.create_mock_executor_info("test_executor_1", is_active=True)
+        self.controller.executors_info = [mock_executor]
+        
+        # Test canceling existing executor
+        result = self.controller.cancel("test_executor_1")
+        self.assertTrue(result)
+        
+        # Check that action was added to queue using put_nowait
+        self.mock_actions_queue.put_nowait.assert_called_once()
+        
+        # Reset mock
+        self.mock_actions_queue.reset_mock()
+        
+        # Test canceling non-existent executor
+        result = self.controller.cancel("non_existent")
+        self.assertFalse(result)
+        
+        # Check that no action was added to queue
+        self.mock_actions_queue.put_nowait.assert_not_called()
+
+    def test_cancel_all_orders_trading_api(self):
+        """Test canceling all orders with trading API."""
+        # Setup mock executors
+        mock_executor1 = self.create_mock_executor_info("test_executor_1", connector_name="binance", is_active=True)
+        mock_executor2 = self.create_mock_executor_info("test_executor_2", connector_name="coinbase", is_active=True)
+        self.controller.executors_info = [mock_executor1, mock_executor2]
+        
+        # Mock the cancel method to always return True
+        self.controller.cancel = MagicMock(return_value=True)
+        
+        # Cancel all orders
+        cancelled_ids = self.controller.cancel_all()
+        self.assertEqual(len(cancelled_ids), 2)
+        self.assertIn("test_executor_1", cancelled_ids)
+        self.assertIn("test_executor_2", cancelled_ids)
+        
+        # Reset mock and test filters
+        self.controller.cancel.reset_mock()
+        
+        # Cancel with connector filter
+        cancelled_ids = self.controller.cancel_all(connector_name="binance")
+        self.assertEqual(len(cancelled_ids), 1)
+        self.assertIn("test_executor_1", cancelled_ids)
+        
+        # Cancel with non-matching filter
+        cancelled_ids = self.controller.cancel_all(connector_name="kucoin")
+        self.assertEqual(len(cancelled_ids), 0)
+
+    def test_open_orders_trading_api(self):
+        """Test getting open orders with trading API."""
+        # Setup mock executor
+        mock_executor = self.create_mock_executor_info(
+            "test_executor_1", 
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            side=TradeType.BUY,
+            is_active=True
+        )
+        mock_executor.filled_amount_base = Decimal("0.1")
+        mock_executor.status.value = "RUNNING"
+        mock_executor.custom_info = {
+            'connector_name': 'binance',
+            'trading_pair': 'ETH-USDT',
+            'side': TradeType.BUY
+        }
+        self.controller.executors_info = [mock_executor]
+        
+        orders = self.controller.open_orders()
+        self.assertEqual(len(orders), 1)
+        
+        order = orders[0]
+        self.assertEqual(order['executor_id'], "test_executor_1")
+        self.assertEqual(order['connector_name'], 'binance')
+        self.assertEqual(order['trading_pair'], 'ETH-USDT')
+        self.assertEqual(order['side'], TradeType.BUY)
+        self.assertEqual(order['amount'], Decimal("1.0"))  # From mock config
+        self.assertEqual(order['filled_amount'], Decimal("0.1"))
+
+    def test_open_orders_with_filters_trading_api(self):
+        """Test getting open orders with filters in trading API."""
+        # Setup mock executors
+        mock_executor1 = self.create_mock_executor_info(
+            "test_executor_1", 
+            connector_name="binance",
+            trading_pair="ETH-USDT",
+            is_active=True
+        )
+        mock_executor2 = self.create_mock_executor_info(
+            "test_executor_2", 
+            connector_name="coinbase",
+            trading_pair="BTC-USDT",
+            is_active=True
+        )
+        self.controller.executors_info = [mock_executor1, mock_executor2]
+        
+        # Filter by connector
+        orders = self.controller.open_orders(connector_name="binance")
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['executor_id'], "test_executor_1")
+        
+        # Filter by non-matching connector
+        orders = self.controller.open_orders(connector_name="kucoin")
+        self.assertEqual(len(orders), 0)
+        
+        # Filter by trading pair
+        orders = self.controller.open_orders(trading_pair="ETH-USDT")
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['executor_id'], "test_executor_1")
+
+    def test_get_current_price_trading_api(self):
+        """Test getting current market price in trading API."""
+        # Mock market data provider
+        self.mock_market_data_provider.get_price_by_type.return_value = Decimal("2000")
+        
+        price = self.controller.get_current_price("binance", "ETH-USDT")
+        self.assertEqual(price, Decimal("2000"))
+        
+        # Test with specific price type
+        price = self.controller.get_current_price("binance", "ETH-USDT", PriceType.BestBid)
+        self.assertEqual(price, Decimal("2000"))
+        
+        # Verify the mock was called correctly
+        self.mock_market_data_provider.get_price_by_type.assert_called_with(
+            "binance", "ETH-USDT", PriceType.BestBid
+        )
+
+    def test_find_executor_by_id_trading_api(self):
+        """Test finding executor by ID in trading API."""
+        # Setup mock executor
+        mock_executor = self.create_mock_executor_info("test_executor_1")
+        self.controller.executors_info = [mock_executor]
+        
+        executor = self.controller._find_executor_by_id("test_executor_1")
+        self.assertIsNotNone(executor)
+        self.assertEqual(executor.id, "test_executor_1")
+        
+        # Test non-existent executor
+        executor = self.controller._find_executor_by_id("non_existent")
+        self.assertIsNone(executor)
