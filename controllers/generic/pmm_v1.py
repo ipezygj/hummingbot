@@ -176,19 +176,26 @@ class PMMV1(ControllerBase):
         self._last_seen_executors: Dict[str, bool] = {}
         
     def _detect_filled_executors(self):
-        """Detect executors that were filled (disappeared from active executors)."""
+        """Detect executors that were filled (not cancelled)."""
         # Get current active executor IDs by level
         current_active_by_level = {}
-        for executor in self.executors_info:
-            if executor.is_active:
-                level_id = executor.custom_info.get("level_id", "")
-                if level_id:
-                    current_active_by_level[level_id] = True
+        filled_levels = set()
         
-        # Check for levels that were active before but aren't now (indicating fills)
+        for executor in self.executors_info:
+            level_id = executor.custom_info.get("level_id", "")
+                
+            if executor.is_active:
+                current_active_by_level[level_id] = True
+            elif executor.close_type == CloseType.POSITION_HOLD:
+                # POSITION_HOLD means the order was filled
+                filled_levels.add(level_id)
+        
+        # Check for levels that were active before but aren't now and were filled
         for level_id, was_active in self._last_seen_executors.items():
-            if was_active and level_id not in current_active_by_level:
-                # This level was active before but not now - likely filled
+            if (was_active and 
+                level_id not in current_active_by_level and 
+                level_id in filled_levels):
+                # This level was active before, not now, and was filled
                 self._handle_filled_executor(level_id)
         
         # Update last seen state
