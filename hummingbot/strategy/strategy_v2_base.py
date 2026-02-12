@@ -327,11 +327,14 @@ class StrategyV2Base(StrategyPyBase):
         Called when the strategy is stopped. Shuts down controllers, executors, and market data provider.
         """
         self._is_stop_triggered = True
+        
+        # Stop controllers FIRST to prevent new executor actions
+        for controller in self.controllers.values():
+            controller.stop()
+        
         if self.listen_to_executor_actions_task:
             self.listen_to_executor_actions_task.cancel()
         await self.executor_orchestrator.stop(self.max_executors_close_attempts)
-        for controller in self.controllers.values():
-            controller.stop()
         self.market_data_provider.stop()
         self.executor_orchestrator.store_all_executors()
         if self.mqtt_enabled:
