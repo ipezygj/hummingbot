@@ -2,6 +2,7 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 import aiohttp
@@ -119,7 +120,7 @@ class RESTResponse:
                 decoded_string = byte_string.decode('utf-8')
                 try:
                     json_ = json.loads(decoded_string)
-                except json.JSONDecodeError:
+                except JSONDecodeError:
                     json_ = decoded_string
             else:
                 json_ = await self._aiohttp_response.json()
