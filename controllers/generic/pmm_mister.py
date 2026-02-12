@@ -594,12 +594,28 @@ class PMMister(ControllerBase):
         # Price distance information
         buy_violations = len(price_analysis.get('buy', {}).get('violations', []))
         sell_violations = len(price_analysis.get('sell', {}).get('violations', []))
+        
+        # Calculate actual distances for current levels
+        current_buy_distance = ""
+        current_sell_distance = ""
+        
+        all_levels_analysis = self.analyze_all_levels()
+        for analysis in all_levels_analysis:
+            level_id = analysis["level_id"]
+            is_buy = level_id.startswith("buy")
+            
+            if is_buy and analysis["max_price"]:
+                distance = (current_price - analysis["max_price"]) / current_price
+                current_buy_distance = f"({distance:.3%})"
+            elif not is_buy and analysis["min_price"]:
+                distance = (analysis["min_price"] - current_price) / current_price
+                current_sell_distance = f"({distance:.3%})"
 
         price_info = [
-            f"BUY Min: {self.config.min_buy_price_distance_pct:.3%}",
-            f"SELL Min: {self.config.min_sell_price_distance_pct:.3%}",
-            f"Violations: B:{buy_violations} S:{sell_violations}",
-            ""
+            f"BUY Min: {self.config.min_buy_price_distance_pct:.3%} {current_buy_distance}",
+            f"SELL Min: {self.config.min_sell_price_distance_pct:.3%} {current_sell_distance}",
+            f"Current: ${current_price:.2f}",
+            f"Breakeven: ${breakeven:.2f}" if breakeven else "Breakeven: N/A"
         ]
 
         # Effectivization information
@@ -637,14 +653,6 @@ class PMMister(ControllerBase):
 
         # Show level conditions
         status.extend(self._format_level_conditions(level_conditions, inner_width))
-
-        # PRICE ACTION & ORDER ZONES
-        status.append(f"├{'─' * inner_width}┤")
-        status.append(f"│ {'📈 PRICE ACTION & ORDER ZONES (Last 30 ticks)':<{inner_width}} │")
-        status.append(f"├{'─' * inner_width}┤")
-        
-        # Add price graph
-        status.extend(self._format_price_graph(current_price, breakeven, inner_width))
 
         # VISUAL PROGRESS INDICATORS
         status.append(f"├{'─' * inner_width}┤")
@@ -736,7 +744,7 @@ class PMMister(ControllerBase):
 
         remaining = cooldown_data.get('remaining_time', 0)
         progress = cooldown_data.get('progress_pct', Decimal('0'))
-        return f"{remaining}s ({progress:.0%})"
+        return f"{remaining:.1f}s ({progress:.0%})"
 
     def _format_level_conditions(self, level_conditions: Dict, inner_width: int) -> List[str]:
         """Format level-by-level conditions analysis"""
@@ -790,13 +798,13 @@ class PMMister(ControllerBase):
             progress = float(buy_cooldown.get('progress_pct', 0))
             remaining = buy_cooldown.get('remaining_time', 0)
             bar = self._create_progress_bar(progress, bar_width)
-            lines.append(f"│ BUY Cooldown:   [{bar}] {remaining}s remaining │")
+            lines.append(f"│ BUY Cooldown:   [{bar}] {remaining:.1f}s remaining │")
 
         if sell_cooldown.get('active'):
             progress = float(sell_cooldown.get('progress_pct', 0))
             remaining = sell_cooldown.get('remaining_time', 0)
             bar = self._create_progress_bar(progress, bar_width)
-            lines.append(f"│ SELL Cooldown:  [{bar}] {remaining}s remaining │")
+            lines.append(f"│ SELL Cooldown:  [{bar}] {remaining:.1f}s remaining │")
 
         return lines
 
