@@ -13,6 +13,7 @@ A concentrated liquidity (CLMM) position manager that automatically rebalances p
 - [Edge Cases](#edge-cases)
 - [Database & Tracking](#database--tracking)
 - [Troubleshooting](#troubleshooting)
+- [Scripts](#scripts)
 - [Why Controller-Managed Rebalancing?](#why-controller-managed-rebalancing)
 
 ---
@@ -120,6 +121,7 @@ controller_type: generic               # Controller category
 total_amount_quote: '50'               # Total value in quote currency
 side: 0                                # Initial side: 0=BOTH, 1=BUY, 2=SELL
 position_width_pct: '0.5'              # Position width as percentage (0.5 = 0.5%)
+position_offset_pct: '0.1'             # Offset to ensure single-sided positions start out-of-range
 
 # Connection
 connector_name: meteora/clmm           # LP connector
@@ -139,7 +141,6 @@ rebalance_threshold_pct: '0.1'         # Price must be this % beyond bounds befo
 
 # Optional
 strategy_type: 0                       # Connector-specific (Meteora strategy type)
-manual_kill_switch: false              # Emergency stop
 ```
 
 ### Configuration Parameters
@@ -150,6 +151,7 @@ manual_kill_switch: false              # Emergency stop
 | `total_amount_quote` | decimal | 50 | Total position value in quote currency |
 | `side` | int | 1 | Initial side: 0=BOTH, 1=BUY, 2=SELL |
 | `position_width_pct` | decimal | 0.5 | Position width as percentage |
+| `position_offset_pct` | decimal | 0.01 | Offset from current price to ensure single-sided positions start out-of-range |
 | `sell_price_max` | decimal | null | Upper limit for SELL zone |
 | `sell_price_min` | decimal | null | Lower limit for SELL zone (anchor point) |
 | `buy_price_max` | decimal | null | Upper limit for BUY zone (anchor point) |
@@ -651,6 +653,32 @@ solana account <position_address>
 
 # View transaction
 https://solscan.io/tx/<signature>
+```
+
+---
+
+## Scripts
+
+Utility scripts for analyzing and visualizing LP position data. See the [Scripts README](scripts/README.md) for full documentation.
+
+| Script | Description |
+|--------|-------------|
+| `visualize_lp_positions.py` | Interactive HTML dashboard from LP position events (recommended) |
+| `visualize_executors.py` | Interactive HTML dashboard from executor data |
+| `export_lp_positions.py` | Export raw LP add/remove events to CSV |
+| `export_lp_executors.py` | Export executor data to CSV |
+
+### Quick Start
+
+```bash
+# Generate dashboard for SOL-USDC positions
+python controllers/generic/lp_rebalancer/scripts/visualize_lp_positions.py --pair SOL-USDC
+
+# Filter by connector and time
+python controllers/generic/lp_rebalancer/scripts/visualize_lp_positions.py --pair SOL-USDC --connector meteora/clmm --hours 24
+
+# Export raw events
+python controllers/generic/lp_rebalancer/scripts/export_lp_positions.py --pair SOL-USDC
 ```
 
 ---
