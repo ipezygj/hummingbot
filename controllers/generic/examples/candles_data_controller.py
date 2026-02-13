@@ -178,8 +178,8 @@ class CandlesDataController(ControllerBase):
                         lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                         lines.extend(["-" * 80])
 
-                        # Show last 5 rows with basic columns
-                        basic_columns = ["timestamp", "close", "volume"]
+                        # Show last 5 rows with basic columns (OHLC + volume)
+                        basic_columns = ["timestamp", "open", "high", "low", "close", "volume"]
                         indicator_columns = []
 
                         # Only include indicators if they were calculated successfully
