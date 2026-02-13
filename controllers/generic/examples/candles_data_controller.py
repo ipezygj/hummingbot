@@ -81,13 +81,9 @@ class CandlesDataController(ControllerBase):
         self.config = config
 
         # Initialize candles based on config
-        try:
-            for candles_config in self.config.candles_config:
-                self.market_data_provider.initialize_candles_feed(candles_config)
-            self.logger().info(f"Initialized {len(self.config.candles_config)} candle feeds successfully")
-        except Exception as e:
-            self.logger().error(f"Error initializing candle feeds: {e}")
-            raise
+        for candles_config in self.config.candles_config:
+            self.market_data_provider.initialize_candles_feed(candles_config)
+        self.logger().info(f"Initialized {len(self.config.candles_config)} candle feeds successfully")
 
     @property
     def all_candles_ready(self):
@@ -95,13 +91,9 @@ class CandlesDataController(ControllerBase):
         Checks if all configured candles are ready.
         """
         for candle in self.config.candles_config:
-            try:
-                # Try to get the candles feed
-                candles_feed = self.market_data_provider.get_candles_feed(candle)
-                # Check if the feed is ready and has data
-                if not candles_feed.ready or candles_feed.candles_df.empty:
-                    return False
-            except Exception:
+            candles_feed = self.market_data_provider.get_candles_feed(candle)
+            # Check if the feed is ready and has data
+            if not candles_feed.ready or candles_feed.candles_df.empty:
                 return False
         return True
 
@@ -116,21 +108,15 @@ class CandlesDataController(ControllerBase):
                     max_records=50
                 )
                 if candles_df is not None and not candles_df.empty:
-                    try:
-                        candles_df = candles_df.copy()
+                    candles_df = candles_df.copy()
 
-                        # Calculate indicators if enough data
-                        if len(candles_df) >= 20:
-                            try:
-                                candles_df.ta.rsi(length=14, append=True)
-                                candles_df.ta.bbands(length=20, std=2, append=True)
-                                candles_df.ta.ema(length=14, append=True)
-                            except Exception as e:
-                                self.logger().warning(f"Error calculating indicators: {e}")
+                    # Calculate indicators if enough data
+                    if len(candles_df) >= 20:
+                        candles_df.ta.rsi(length=14, append=True)
+                        candles_df.ta.bbands(length=20, std=2, append=True)
+                        candles_df.ta.ema(length=14, append=True)
 
-                        candles_data[f"{candle_config.connector}_{candle_config.trading_pair}_{candle_config.interval}"] = candles_df
-                    except Exception as e:
-                        self.logger().error(f"Error processing candles data: {e}")
+                    candles_data[f"{candle_config.connector}_{candle_config.trading_pair}_{candle_config.interval}"] = candles_df
 
         self.processed_data = {"candles_data": candles_data, "all_candles_ready": self.all_candles_ready}
 
@@ -154,86 +140,61 @@ class CandlesDataController(ControllerBase):
                 )
 
                 if candles_df is not None and not candles_df.empty:
-                    try:
-                        candles_df = candles_df.copy()
+                    candles_df = candles_df.copy()
 
-                        # Only calculate indicators if we have enough data
-                        if len(candles_df) >= 20:
-                            try:
-                                candles_df.ta.rsi(length=14, append=True)
-                                candles_df.ta.bbands(length=20, std=2, append=True)
-                                candles_df.ta.ema(length=14, append=True)
-                            except Exception:
-                                candles_df["RSI_14"] = None
-                                candles_df["BBP_20_2.0"] = None
-                                candles_df["EMA_14"] = None
-                        else:
-                            candles_df["RSI_14"] = None
-                            candles_df["BBP_20_2.0"] = None
-                            candles_df["EMA_14"] = None
+                    # Calculate indicators if we have enough data
+                    if len(candles_df) >= 20:
+                        candles_df.ta.rsi(length=14, append=True)
+                        candles_df.ta.bbands(length=20, std=2, append=True)
+                        candles_df.ta.ema(length=14, append=True)
 
-                        candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
+                    candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
 
-                        # Display candles info
-                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
-                        lines.extend(["-" * 80])
+                    # Display candles info
+                    lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
+                    lines.extend(["-" * 80])
 
-                        # Show last 5 rows with basic columns (OHLC + volume)
-                        basic_columns = ["timestamp", "open", "high", "low", "close", "volume"]
-                        indicator_columns = []
+                    # Show last 5 rows with basic columns (OHLC + volume)
+                    basic_columns = ["timestamp", "open", "high", "low", "close", "volume"]
+                    indicator_columns = []
 
-                        # Only include indicators if they were calculated successfully
-                        if "RSI_14" in candles_df.columns and candles_df["RSI_14"].notna().any():
-                            indicator_columns.append("RSI_14")
-                        if "BBP_20_2.0" in candles_df.columns and candles_df["BBP_20_2.0"].notna().any():
-                            indicator_columns.append("BBP_20_2.0")
-                        if "EMA_14" in candles_df.columns and candles_df["EMA_14"].notna().any():
-                            indicator_columns.append("EMA_14")
+                    # Include indicators if they exist and have data
+                    if "RSI_14" in candles_df.columns and candles_df["RSI_14"].notna().any():
+                        indicator_columns.append("RSI_14")
+                    if "BBP_20_2.0_2.0" in candles_df.columns and candles_df["BBP_20_2.0_2.0"].notna().any():
+                        indicator_columns.append("BBP_20_2.0_2.0")
+                    if "EMA_14" in candles_df.columns and candles_df["EMA_14"].notna().any():
+                        indicator_columns.append("EMA_14")
 
-                        display_columns = basic_columns + indicator_columns
-                        display_df = candles_df.tail(5)[display_columns].copy()
+                    display_columns = basic_columns + indicator_columns
+                    display_df = candles_df.tail(5)[display_columns].copy()
 
-                        # Round numeric columns only, handle datetime columns separately
-                        numeric_columns = display_df.select_dtypes(include=['number']).columns
-                        display_df[numeric_columns] = display_df[numeric_columns].round(4)
-                        lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
+                    # Round numeric columns only, handle datetime columns separately
+                    numeric_columns = display_df.select_dtypes(include=['number']).columns
+                    display_df[numeric_columns] = display_df[numeric_columns].round(4)
+                    lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
 
-                        # Current values
-                        current = candles_df.iloc[-1]
-                        lines.extend([""])
-                        current_price = f"Current Price: ${current['close']:.4f}"
+                    # Current values
+                    current = candles_df.iloc[-1]
+                    lines.extend([""])
+                    current_price = f"Current Price: ${current['close']:.4f}"
 
-                        # Add indicator values if available
-                        if "RSI_14" in candles_df.columns and pd.notna(current.get('RSI_14')):
-                            current_price += f" | RSI: {current['RSI_14']:.2f}"
+                    # Add indicator values if available
+                    if "RSI_14" in candles_df.columns and pd.notna(current.get('RSI_14')):
+                        current_price += f" | RSI: {current['RSI_14']:.2f}"
 
-                        if "BBP_20_2.0" in candles_df.columns and pd.notna(current.get('BBP_20_2.0')):
-                            current_price += f" | BB%: {current['BBP_20_2.0']:.3f}"
+                    if "BBP_20_2.0_2.0" in candles_df.columns and pd.notna(current.get('BBP_20_2.0_2.0')):
+                        current_price += f" | BB%: {current['BBP_20_2.0_2.0']:.3f}"
 
-                        lines.extend([f"    {current_price}"])
-
-                    except Exception as e:
-                        # Fallback: show basic candle data without indicators
-                        lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
-                        lines.extend(["-" * 80])
-                        lines.extend([f"    Error calculating indicators: {e}"])
-                        lines.extend(["    Showing basic data only:"])
-
-                        # Basic display without indicators
-                        candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], unit="s")
-                        basic_df = candles_df.tail(3)[["timestamp", "open", "high", "low", "close", "volume"]]
-                        lines.extend(["    " + line for line in basic_df.to_string(index=False).split("\n")])
+                    lines.extend([f"    {current_price}"])
                 else:
                     lines.extend([f"\n[{i + 1}] {candle_config.connector.upper()} | {candle_config.trading_pair} | {candle_config.interval}"])
                     lines.extend(["    No data available yet..."])
         else:
             lines.extend(["\n⏳ Waiting for candles data to be ready..."])
             for candle_config in self.config.candles_config:
-                try:
-                    candles_feed = self.market_data_provider.get_candles_feed(candle_config)
-                    ready = candles_feed.ready and not candles_feed.candles_df.empty
-                except Exception:
-                    ready = False
+                candles_feed = self.market_data_provider.get_candles_feed(candle_config)
+                ready = candles_feed.ready and not candles_feed.candles_df.empty
                 status = "✅" if ready else "❌"
                 lines.extend([f"    {status} {candle_config.connector}.{candle_config.trading_pair}.{candle_config.interval}"])
 
