@@ -21,21 +21,21 @@ class PMMisterConfig(ControllerConfigBase):
     controller_name: str = "pmm_mister"
     connector_name: str = Field(default="binance")
     trading_pair: str = Field(default="BTC-FDUSD")
-    portfolio_allocation: Decimal = Field(default=Decimal("0.05"), json_schema_extra={"is_updatable": True})
-    target_base_pct: Decimal = Field(default=Decimal("0.2"), json_schema_extra={"is_updatable": True})
-    min_base_pct: Decimal = Field(default=Decimal("0.1"), json_schema_extra={"is_updatable": True})
-    max_base_pct: Decimal = Field(default=Decimal("0.4"), json_schema_extra={"is_updatable": True})
-    buy_spreads: List[float] = Field(default="0.01,0.02", json_schema_extra={"is_updatable": True})
-    sell_spreads: List[float] = Field(default="0.01,0.02", json_schema_extra={"is_updatable": True})
-    buy_amounts_pct: Union[List[Decimal], None] = Field(default="1,2", json_schema_extra={"is_updatable": True})
-    sell_amounts_pct: Union[List[Decimal], None] = Field(default="1,2", json_schema_extra={"is_updatable": True})
+    portfolio_allocation: Decimal = Field(default=Decimal("0.1"), json_schema_extra={"is_updatable": True})
+    target_base_pct: Decimal = Field(default=Decimal("0.5"), json_schema_extra={"is_updatable": True})
+    min_base_pct: Decimal = Field(default=Decimal("0.3"), json_schema_extra={"is_updatable": True})
+    max_base_pct: Decimal = Field(default=Decimal("0.7"), json_schema_extra={"is_updatable": True})
+    buy_spreads: List[float] = Field(default="0.0005", json_schema_extra={"is_updatable": True})
+    sell_spreads: List[float] = Field(default="0.0005", json_schema_extra={"is_updatable": True})
+    buy_amounts_pct: Union[List[Decimal], None] = Field(default="1", json_schema_extra={"is_updatable": True})
+    sell_amounts_pct: Union[List[Decimal], None] = Field(default="1", json_schema_extra={"is_updatable": True})
     executor_refresh_time: int = Field(default=30, json_schema_extra={"is_updatable": True})
 
     # Enhanced timing parameters
-    buy_cooldown_time: int = Field(default=15, json_schema_extra={"is_updatable": True})
-    sell_cooldown_time: int = Field(default=15, json_schema_extra={"is_updatable": True})
-    buy_position_effectivization_time: int = Field(default=60, json_schema_extra={"is_updatable": True})
-    sell_position_effectivization_time: int = Field(default=60, json_schema_extra={"is_updatable": True})
+    buy_cooldown_time: int = Field(default=60, json_schema_extra={"is_updatable": True})
+    sell_cooldown_time: int = Field(default=60, json_schema_extra={"is_updatable": True})
+    buy_position_effectivization_time: int = Field(default=120, json_schema_extra={"is_updatable": True})
+    sell_position_effectivization_time: int = Field(default=120, json_schema_extra={"is_updatable": True})
 
     # Price distance requirements
     min_buy_price_distance_pct: Decimal = Field(default=Decimal("0.005"), json_schema_extra={"is_updatable": True})
@@ -45,10 +45,11 @@ class PMMisterConfig(ControllerConfigBase):
     position_mode: PositionMode = Field(default="HEDGE")
     take_profit: Optional[Decimal] = Field(default=Decimal("0.0001"), gt=0, json_schema_extra={"is_updatable": True})
     take_profit_order_type: Optional[OrderType] = Field(default="LIMIT_MAKER", json_schema_extra={"is_updatable": True})
-    max_active_executors_by_level: Optional[int] = Field(default=1, json_schema_extra={"is_updatable": True})
+    open_order_type: Optional[OrderType] = Field(default="LIMIT_MAKER", json_schema_extra={"is_updatable": True})
+    max_active_executors_by_level: Optional[int] = Field(default=4, json_schema_extra={"is_updatable": True})
     tick_mode: bool = Field(default=False, json_schema_extra={"is_updatable": True})
     position_profit_protection: bool = Field(default=False, json_schema_extra={"is_updatable": True})
-    min_skew: Decimal = Field(default=Decimal("0.4"), json_schema_extra={"is_updatable": True})
+    min_skew: Decimal = Field(default=Decimal("1.0"), json_schema_extra={"is_updatable": True})
     global_take_profit: Decimal = Field(default=Decimal("0.03"), json_schema_extra={"is_updatable": True})
     global_stop_loss: Decimal = Field(default=Decimal("0.05"), json_schema_extra={"is_updatable": True})
 
@@ -96,7 +97,7 @@ class PMMisterConfig(ControllerConfigBase):
         return TripleBarrierConfig(
             take_profit=self.take_profit,
             trailing_stop=None,
-            open_order_type=OrderType.LIMIT_MAKER,
+            open_order_type=self.open_order_type,
             take_profit_order_type=self.take_profit_order_type,
             stop_loss_order_type=OrderType.MARKET,
             time_limit_order_type=OrderType.MARKET
