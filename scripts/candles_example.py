@@ -109,24 +109,16 @@ class CandlesExample(StrategyV2Base):
         # Note: self.config is already set by parent class
 
         # Initialize candles based on config
-        for candles_config in self.typed_config.candles_config:
+        for candles_config in self.config.candles_config:
             self.market_data_provider.initialize_candles_feed(candles_config)
-        self.logger().info(f"Initialized {len(self.typed_config.candles_config)} candle feeds successfully")
-
-    @property
-    def typed_config(self) -> CandlesExampleConfig:
-        """
-        Returns the config with proper typing for IDE support.
-        The parent class stores config as BaseModel, but we know it's CandlesExampleConfig.
-        """
-        return self.config  # type: ignore
+        self.logger().info(f"Initialized {len(self.config.candles_config)} candle feeds successfully")
 
     @property
     def all_candles_ready(self):
         """
         Checks if all configured candles are ready.
         """
-        for candle in self.typed_config.candles_config:
+        for candle in self.config.candles_config:
             candles_feed = self.market_data_provider.get_candles_feed(candle)
             # Check if the feed is ready and has data
             if not candles_feed.ready or candles_feed.candles_df.empty:
@@ -151,7 +143,7 @@ class CandlesExample(StrategyV2Base):
         lines.extend(["=" * 100])
 
         if self.all_candles_ready:
-            for i, candle_config in enumerate(self.typed_config.candles_config):
+            for i, candle_config in enumerate(self.config.candles_config):
                 # Get candles dataframe from market data provider
                 # Request more data for indicator calculation, but only display the last few
                 candles_df = self.market_data_provider.get_candles_df(
@@ -212,7 +204,7 @@ class CandlesExample(StrategyV2Base):
                     lines.extend(["    No data available yet..."])
         else:
             lines.extend(["\n⏳ Waiting for candles data to be ready..."])
-            for candle_config in self.typed_config.candles_config:
+            for candle_config in self.config.candles_config:
                 candles_feed = self.market_data_provider.get_candles_feed(candle_config)
                 ready = candles_feed.ready and not candles_feed.candles_df.empty
                 status = "✅" if ready else "❌"
