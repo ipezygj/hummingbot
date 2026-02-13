@@ -560,6 +560,217 @@ function ExecutorTable({ data, selectedIdx, onSelect }) {
   );
 }
 
+// Custom chart component for position ranges with price line
+function PositionRangeChart({ data, onSelectPosition, tradingPair }) {
+  const e = React.createElement;
+  const containerRef = React.useRef(null);
+  const [dimensions, setDimensions] = React.useState({ width: 0, height: 400 });
+
+  React.useEffect(() => {
+    if (containerRef.current) {
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          setDimensions({ width: entry.contentRect.width, height: 400 });
+        }
+      });
+      resizeObserver.observe(containerRef.current);
+      return () => resizeObserver.disconnect();
+    }
+  }, []);
+
+  const { width, height } = dimensions;
+  const margin = { top: 20, right: 60, bottom: 40, left: 70 };
+  const innerWidth = width - margin.left - margin.right;
+  const innerHeight = height - margin.top - margin.bottom;
+
+  // Compute time and price domains
+  const { minTime, maxTime, minPrice, maxPrice, pricePoints } = React.useMemo(() => {
+    if (!data.length) return { minTime: 0, maxTime: 1, minPrice: 0, maxPrice: 1, pricePoints: [] };
+
+    let minT = Infinity, maxT = -Infinity;
+    let minP = Infinity, maxP = -Infinity;
+    const points = [];
+
+    data.forEach(d => {
+      const addTs = new Date(d.ts).getTime();
+      const removeTs = d.close_ts ? new Date(d.close_ts).getTime() : Date.now();
+
+      minT = Math.min(minT, addTs);
+      maxT = Math.max(maxT, removeTs);
+      minP = Math.min(minP, d.lower, d.price);
+      maxP = Math.max(maxP, d.upper, d.price);
+
+      // Add price points for the line
+      points.push({ time: addTs, price: d.price });
+      if (d.close_ts) {
+        points.push({ time: removeTs, price: d.price });
+      }
+    });
+
+    // Sort price points by time
+    points.sort((a, b) => a.time - b.time);
+
+    // Add padding to price range
+    const priceRange = maxP - minP;
+    minP -= priceRange * 0.05;
+    maxP += priceRange * 0.05;
+
+    return { minTime: minT, maxTime: maxT, minPrice: minP, maxPrice: maxP, pricePoints: points };
+  }, [data]);
+
+  // Scale functions
+  const xScale = (t) => margin.left + ((t - minTime) / (maxTime - minTime)) * innerWidth;
+  const yScale = (p) => margin.top + innerHeight - ((p - minPrice) / (maxPrice - minPrice)) * innerHeight;
+
+  // Generate Y axis ticks
+  const yTicks = React.useMemo(() => {
+    const ticks = [];
+    const range = maxPrice - minPrice;
+    const step = range / 5;
+    for (let i = 0; i <= 5; i++) {
+      ticks.push(minPrice + step * i);
+    }
+    return ticks;
+  }, [minPrice, maxPrice]);
+
+  // Generate X axis ticks
+  const xTicks = React.useMemo(() => {
+    const ticks = [];
+    const range = maxTime - minTime;
+    const step = range / 6;
+    for (let i = 0; i <= 6; i++) {
+      ticks.push(minTime + step * i);
+    }
+    return ticks;
+  }, [minTime, maxTime]);
+
+  // Build price line path
+  const pricePath = React.useMemo(() => {
+    if (pricePoints.length < 2) return "";
+    return pricePoints.map((p, i) =>
+      `${i === 0 ? "M" : "L"} ${xScale(p.time)} ${yScale(p.price)}`
+    ).join(" ");
+  }, [pricePoints, xScale, yScale]);
+
+  if (width === 0) {
+    return e("div", { ref: containerRef, style: { width: "100%", height: 400 } });
+  }
+
+  // Map side: 1 = Quote (Buy), 2 = Base (Sell)
+  const getSideLabel = (side) => side === 1 ? "BUY" : "SELL";
+
+  return e("div", { ref: containerRef, style: { width: "100%", height: 400, background: "rgba(255,255,255,0.02)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.05)" } },
+    e("svg", { width, height, style: { display: "block" } },
+      // Grid lines
+      ...yTicks.map((tick, i) => e("line", {
+        key: `y-${i}`,
+        x1: margin.left,
+        y1: yScale(tick),
+        x2: width - margin.right,
+        y2: yScale(tick),
+        stroke: "rgba(255,255,255,0.04)",
+        strokeDasharray: "3,3"
+      })),
+      ...xTicks.map((tick, i) => e("line", {
+        key: `x-${i}`,
+        x1: xScale(tick),
+        y1: margin.top,
+        x2: xScale(tick),
+        y2: height - margin.bottom,
+        stroke: "rgba(255,255,255,0.04)",
+        strokeDasharray: "3,3"
+      })),
+
+      // Position range bars
+      ...data.map((d, i) => {
+        const addTs = new Date(d.ts).getTime();
+        const removeTs = d.close_ts ? new Date(d.close_ts).getTime() : Date.now();
+        const x1 = xScale(addTs);
+        const x2 = xScale(removeTs);
+        const y1 = yScale(d.upper);
+        const y2 = yScale(d.lower);
+        // Side 1 = Quote (Buy) = green, Side 2 = Base (Sell) = red
+        const fillColor = d.side === 1 ? "rgba(78,205,196,0.25)" : "rgba(232,93,117,0.25)";
+        const strokeColor = d.side === 1 ? "#4ecdc4" : "#e85d75";
+
+        return e("rect", {
+          key: `pos-${i}`,
+          x: x1,
+          y: y1,
+          width: Math.max(x2 - x1, 2),
+          height: Math.max(y2 - y1, 1),
+          fill: fillColor,
+          stroke: strokeColor,
+          strokeWidth: 1,
+          strokeOpacity: 0.5,
+          cursor: "pointer",
+          onClick: () => onSelectPosition(d.idx),
+        });
+      }),
+
+      // Price line
+      e("path", {
+        d: pricePath,
+        fill: "none",
+        stroke: "#f0c644",
+        strokeWidth: 2,
+        strokeLinejoin: "round",
+        strokeLinecap: "round",
+      }),
+
+      // Price dots at position open/close
+      ...pricePoints.map((p, i) => e("circle", {
+        key: `dot-${i}`,
+        cx: xScale(p.time),
+        cy: yScale(p.price),
+        r: 3,
+        fill: "#f0c644",
+      })),
+
+      // Y axis
+      e("line", { x1: margin.left, y1: margin.top, x2: margin.left, y2: height - margin.bottom, stroke: "rgba(255,255,255,0.1)" }),
+      ...yTicks.map((tick, i) => e("text", {
+        key: `yl-${i}`,
+        x: margin.left - 8,
+        y: yScale(tick),
+        fill: "#555870",
+        fontSize: 10,
+        textAnchor: "end",
+        dominantBaseline: "middle",
+      }, tick.toFixed(tick > 100 ? 0 : tick > 1 ? 2 : 4))),
+
+      // X axis
+      e("line", { x1: margin.left, y1: height - margin.bottom, x2: width - margin.right, y2: height - margin.bottom, stroke: "rgba(255,255,255,0.1)" }),
+      ...xTicks.map((tick, i) => e("text", {
+        key: `xl-${i}`,
+        x: xScale(tick),
+        y: height - margin.bottom + 16,
+        fill: "#555870",
+        fontSize: 10,
+        textAnchor: "middle",
+      }, fmtTime(tick))),
+
+      // Y axis label
+      e("text", {
+        x: 14,
+        y: height / 2,
+        fill: "#6b7084",
+        fontSize: 11,
+        textAnchor: "middle",
+        transform: `rotate(-90, 14, ${height / 2})`,
+      }, `${tradingPair} Price`),
+
+      // Legend
+      e("line", { x1: width - margin.right - 200, y1: margin.top + 6, x2: width - margin.right - 180, y2: margin.top + 6, stroke: "#f0c644", strokeWidth: 2 }),
+      e("text", { x: width - margin.right - 175, y: margin.top + 9, fill: "#8b8fa3", fontSize: 10 }, `${tradingPair} Price`),
+      e("rect", { x: width - margin.right - 95, y: margin.top, width: 12, height: 12, fill: "rgba(78,205,196,0.25)", stroke: "#4ecdc4", strokeWidth: 1 }),
+      e("text", { x: width - margin.right - 78, y: margin.top + 9, fill: "#8b8fa3", fontSize: 10 }, "Buy"),
+      e("rect", { x: width - margin.right - 40, y: margin.top, width: 12, height: 12, fill: "rgba(232,93,117,0.25)", stroke: "#e85d75", strokeWidth: 1 }),
+      e("text", { x: width - margin.right - 23, y: margin.top + 9, fill: "#8b8fa3", fontSize: 10 }, "Sell"),
+    )
+  );
+}
+
 function App() {
   const [sideFilter, setSideFilter] = React.useState("all");
   const [selectedIdx, setSelectedIdx] = React.useState(null);
@@ -660,6 +871,7 @@ function App() {
       e("div", { style: { display: "flex", gap: 0, borderBottom: "1px solid rgba(255,255,255,0.06)", marginBottom: 24 } },
         tabBtn("overview", "Overview"),
         tabBtn("executors", "Executors"),
+        tabBtn("chart", "Range Chart"),
       ),
 
       // Overview tab
@@ -802,6 +1014,12 @@ function App() {
       activeTab === "executors" && e("div", null,
         e(SectionTitle, null, "All Executors"),
         e(ExecutorTable, { data: DATA, selectedIdx, onSelect: setSelectedIdx }),
+      ),
+
+      // Range Chart tab
+      activeTab === "chart" && e("div", null,
+        e(SectionTitle, null, "Position Ranges & Price"),
+        e(PositionRangeChart, { data: DATA, onSelectPosition: setSelectedIdx, tradingPair: pair }),
       ),
 
       e("div", { style: { fontSize: 10, color: "#3a3d50", textAlign: "center", marginTop: 32, paddingBottom: 16 } },

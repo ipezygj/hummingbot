@@ -153,13 +153,18 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         """Test filled_amount_quote calculates correctly"""
         executor = self.get_executor()
         executor._current_price = Decimal("100")
+        # Set initial amounts (actual deposited amounts) - these are used for filled_amount_quote
+        executor.lp_position_state.add_mid_price = Decimal("100")
+        executor.lp_position_state.initial_base_amount = Decimal("2.0")
+        executor.lp_position_state.initial_quote_amount = Decimal("50")
+        # Current state - not used for filled_amount_quote
         executor.lp_position_state.base_amount = Decimal("2.0")
         executor.lp_position_state.quote_amount = Decimal("50")
         executor.lp_position_state.base_fee = Decimal("0.01")
         executor.lp_position_state.quote_fee = Decimal("1.0")
 
-        # Total = (2.0 * 100 + 50) + (0.01 * 100 + 1.0) = 250 + 2 = 252
-        self.assertEqual(executor.filled_amount_quote, Decimal("252"))
+        # filled_amount_quote = initial_base * add_price + initial_quote = 2.0 * 100 + 50 = 250
+        self.assertEqual(executor.filled_amount_quote, Decimal("250"))
 
     def test_get_net_pnl_quote_no_pool_info(self):
         """Test get_net_pnl_quote returns 0 when no pool info"""
@@ -286,30 +291,30 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
 
         self.assertIsNone(executor._pool_info)
 
-    def test_handle_create_failure_increment_retries(self):
+    async def test_handle_create_failure_increment_retries(self):
         """Test _handle_create_failure increments retry counter"""
         executor = self.get_executor()
         executor._current_retries = 0
 
-        executor._handle_create_failure(Exception("Test error"))
+        await executor._handle_create_failure(Exception("Test error"))
 
         self.assertEqual(executor._current_retries, 1)
         self.assertFalse(executor._max_retries_reached)
 
-    def test_handle_create_failure_max_retries(self):
+    async def test_handle_create_failure_max_retries(self):
         """Test _handle_create_failure sets max_retries_reached"""
         executor = self.get_executor()
         executor._current_retries = 9  # Will become 10
 
-        executor._handle_create_failure(Exception("Test error"))
+        await executor._handle_create_failure(Exception("Test error"))
 
         self.assertEqual(executor._current_retries, 10)
         self.assertTrue(executor._max_retries_reached)
 
-    def test_handle_create_failure_timeout_message(self):
+    async def test_handle_create_failure_timeout_message(self):
         """Test _handle_create_failure logs timeout appropriately"""
         executor = self.get_executor()
-        executor._handle_create_failure(Exception("TRANSACTION_TIMEOUT: tx not confirmed"))
+        await executor._handle_create_failure(Exception("TRANSACTION_TIMEOUT: tx not confirmed"))
         self.assertEqual(executor._current_retries, 1)
 
     def test_handle_close_failure_increment_retries(self):
@@ -863,12 +868,12 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
 
         self.assertTrue(executor._max_retries_reached)
 
-    def test_handle_create_failure_with_signature(self):
+    async def test_handle_create_failure_with_signature(self):
         """Test _handle_create_failure includes signature in message"""
         executor = self.get_executor()
         executor._current_retries = 9
 
-        executor._handle_create_failure(Exception("Error"), signature="sig123")
+        await executor._handle_create_failure(Exception("Error"), signature="sig123")
 
         self.assertTrue(executor._max_retries_reached)
 
