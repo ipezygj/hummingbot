@@ -183,7 +183,9 @@ class CandlesExample(StrategyV2Base):
 
                     display_columns = basic_columns + indicator_columns
                     display_df = candles_df.tail(5)[display_columns]
-                    display_df = display_df.round(4)
+                    # Round only numeric columns, exclude datetime columns like timestamp
+                    numeric_columns = display_df.select_dtypes(include=[float, int]).columns
+                    display_df[numeric_columns] = display_df[numeric_columns].round(4)
                     lines.extend(["    " + line for line in display_df.to_string(index=False).split("\n")])
 
                     # Current values
