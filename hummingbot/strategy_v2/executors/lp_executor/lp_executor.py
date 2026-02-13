@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from decimal import Decimal
 from typing import Dict, Optional, Union
@@ -214,7 +215,7 @@ class LPExecutor(ExecutorBase):
 
             if not position_address:
                 self.logger().error(f"No position_address in metadata: {metadata}")
-                self._handle_create_failure(order_id, ValueError("Position creation failed - no position address in response"))
+                await self._handle_create_failure(ValueError("Position creation failed - no position address in response"))
                 return
 
             # Store position address and rent from transaction response
@@ -250,7 +251,17 @@ class LPExecutor(ExecutorBase):
                 self._current_price = current_price
                 self.lp_position_state.add_mid_price = current_price
             else:
+                # Fallback to config values if position_info fetch failed (e.g., rate limit)
+                self.logger().warning("Position info fetch failed, using config values as fallback")
+                self.lp_position_state.base_amount = self.config.base_amount
+                self.lp_position_state.quote_amount = self.config.quote_amount
+                self.lp_position_state.lower_price = lower_price
+                self.lp_position_state.upper_price = upper_price
+                self.lp_position_state.initial_base_amount = self.config.base_amount
+                self.lp_position_state.initial_quote_amount = self.config.quote_amount
                 current_price = mid_price
+                self._current_price = current_price
+                self.lp_position_state.add_mid_price = current_price
 
             self.logger().info(
                 f"Position created: {position_address}, "
@@ -287,19 +298,28 @@ class LPExecutor(ExecutorBase):
             if connector:
                 metadata = connector._lp_orders_metadata.get(order_id, {})
                 sig = metadata.get("signature")
-            self._handle_create_failure(e, signature=sig)
+            await self._handle_create_failure(e, signature=sig)
 
-    def _handle_create_failure(self, error: Exception, signature: Optional[str] = None):
+    async def _handle_create_failure(self, error: Exception, signature: Optional[str] = None):
         """Handle position creation failure with retry logic."""
+        error_str = str(error)
+        sig_info = f" [sig: {signature}]" if signature else ""
+
+        # Check if this is a "price moved" error - position bounds need shifting
+        is_price_moved = "Price has moved" in error_str or "Position would require" in error_str
+
+        if is_price_moved and self.config.side != 0:
+            # Fetch current pool price and shift bounds
+            await self._shift_bounds_for_price_move()
+            # Don't count as retry - this is a recoverable adjustment
+            self.lp_position_state.active_open_order = None
+            return
+
         self._current_retries += 1
         max_retries = self._max_retries
 
         # Check if this is a timeout error (retryable)
-        error_str = str(error)
         is_timeout = "TRANSACTION_TIMEOUT" in error_str
-
-        # Format signature for logging
-        sig_info = f" [sig: {signature}]" if signature else ""
 
         if self._current_retries >= max_retries:
             msg = (
@@ -325,6 +345,56 @@ class LPExecutor(ExecutorBase):
 
         # Clear open order to allow retry - state stays OPENING
         self.lp_position_state.active_open_order = None
+
+    async def _shift_bounds_for_price_move(self):
+        """
+        Shift position bounds when price moved into range during creation.
+        Keeps the same width, shifts by actual price difference to get out of range.
+        """
+        # Fetch current pool price with retry (may fail due to rate limits)
+        for attempt in range(self._max_retries):
+            await self.update_pool_info()
+            if self._current_price:
+                break
+            if attempt < self._max_retries - 1:
+                self.logger().warning(f"Pool price fetch failed, retry {attempt + 1}/{self._max_retries}...")
+                await asyncio.sleep(1)
+
+        if not self._current_price:
+            self.logger().warning("Cannot shift bounds - pool price unavailable after retries")
+            return
+
+        current_price = self._current_price
+        old_lower = self.config.lower_price
+        old_upper = self.config.upper_price
+
+        # Use same offset as controller for recovery shift
+        offset = self.config.position_offset_pct / Decimal("100")
+
+        # Calculate width_pct from existing bounds (multiplicative, matching controller)
+        if self.config.side == 1:  # BUY
+            # Controller: lower = upper * (1 - width), so width = 1 - (lower/upper)
+            width_pct = Decimal("1") - (old_lower / old_upper) if old_upper > 0 else Decimal("0.005")
+            # Same as controller: upper = current * (1 - offset), lower = upper * (1 - width)
+            new_upper = current_price * (Decimal("1") - offset)
+            new_lower = new_upper * (Decimal("1") - width_pct)
+        elif self.config.side == 2:  # SELL
+            # Controller: upper = lower * (1 + width), so width = (upper/lower) - 1
+            width_pct = (old_upper / old_lower) - Decimal("1") if old_lower > 0 else Decimal("0.005")
+            # Same as controller: lower = current * (1 + offset), upper = lower * (1 + width)
+            new_lower = current_price * (Decimal("1") + offset)
+            new_upper = new_lower * (Decimal("1") + width_pct)
+        else:
+            return  # Side 0 (BOTH) doesn't need shifting
+
+        # Update config bounds (Pydantic models are mutable)
+        self.config.lower_price = new_lower
+        self.config.upper_price = new_upper
+
+        self.logger().info(
+            f"Price moved - shifting bounds: [{old_lower:.4f}-{old_upper:.4f}] -> "
+            f"[{new_lower:.4f}-{new_upper:.4f}] (price: {current_price:.4f}, offset: {offset:.4f})"
+        )
 
     async def _close_position(self):
         """
@@ -551,28 +621,35 @@ class LPExecutor(ExecutorBase):
 
     @property
     def filled_amount_quote(self) -> Decimal:
-        """Returns total position value in global token (USD).
+        """Returns initial investment value in global token (USD).
 
-        Calculates position value in pool quote currency, then converts to
-        global token for consistent reporting across different pools.
+        For LP positions, this represents the capital deployed (initial deposit),
+        NOT the current position value. This ensures volume_traded in performance
+        reports reflects actual trading activity, not price fluctuations.
+
+        Uses stored initial amounts valued at deposit time price.
         """
-        if self._current_price is None or self._current_price == 0:
-            return Decimal("0")
-        current_price = self._current_price
+        # Use stored add_mid_price, fall back to current price if not set
+        add_price = self.lp_position_state.add_mid_price
+        if add_price <= 0:
+            add_price = self._current_price if self._current_price else Decimal("0")
 
-        # Total value = (base * price + quote) + (base_fee * price + quote_fee)
-        token_value = (
-            self.lp_position_state.base_amount * current_price +
-            self.lp_position_state.quote_amount
-        )
-        fee_value = (
-            self.lp_position_state.base_fee * current_price +
-            self.lp_position_state.quote_fee
-        )
-        value_in_quote = token_value + fee_value
+        if add_price == 0:
+            return Decimal("0")
+
+        # Use stored initial amounts (actual deposited), fall back to config if not set
+        initial_base = (self.lp_position_state.initial_base_amount
+                        if self.lp_position_state.initial_base_amount > 0
+                        else self.config.base_amount)
+        initial_quote = (self.lp_position_state.initial_quote_amount
+                         if self.lp_position_state.initial_quote_amount > 0
+                         else self.config.quote_amount)
+
+        # Initial investment value in pool quote currency
+        initial_value = initial_base * add_price + initial_quote
 
         # Convert to global token (USD)
-        return value_in_quote * self._get_quote_to_global_rate()
+        return initial_value * self._get_quote_to_global_rate()
 
     def get_custom_info(self) -> Dict:
         """Report LP position state to controller"""

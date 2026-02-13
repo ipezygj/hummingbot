@@ -47,6 +47,10 @@ class LPExecutorConfig(ExecutorConfigBase):
     # Position side: 0=BOTH, 1=BUY (quote only), 2=SELL (base only)
     side: int = 0
 
+    # Offset from current price to ensure single-sided positions start out-of-range
+    # Used when shifting bounds after price moves (e.g., 0.01 = 0.01%)
+    position_offset_pct: Decimal = Decimal("0.01")
+
     # Auto-close: close position after being out of range for this many seconds
     # None = no auto-close (controller handles rebalancing)
     auto_close_out_of_range_seconds: Optional[int] = None

@@ -37,9 +37,9 @@ class LPRebalancerConfig(ControllerConfigBase):
     side: int = Field(default=1, json_schema_extra={"is_updatable": True})  # 0=BOTH, 1=BUY, 2=SELL
     position_width_pct: Decimal = Field(default=Decimal("0.5"), json_schema_extra={"is_updatable": True})
     position_offset_pct: Decimal = Field(
-        default=Decimal("0.001"),
+        default=Decimal("0.01"),
         json_schema_extra={"is_updatable": True},
-        description="Offset from current price to ensure single-sided positions start out-of-range (e.g., 0.001 = 0.001%)"
+        description="Offset from current price to ensure single-sided positions start out-of-range (e.g., 0.1 = 0.1%)"
     )
 
     # Rebalancing
@@ -106,8 +106,6 @@ class LPRebalancer(ControllerBase):
     """
 
     _logger: Optional[HummingbotLogger] = None
-    # Tolerance for float comparison in at_limit checks
-    PRICE_TOLERANCE = Decimal("1e-9")
 
     @classmethod
     def logger(cls) -> HummingbotLogger:
@@ -223,10 +221,8 @@ class LPRebalancer(ControllerBase):
                 side = self._pending_rebalance_side
                 self._pending_rebalance = False
                 self._pending_rebalance_side = None
-                self.logger().info(f"Creating rebalance position with side={side}")
             else:
                 side = self.config.side
-                self.logger().info(f"Creating initial position with side={side}")
 
             # Create executor config with calculated bounds
             executor_config = self._create_executor_config(side)
@@ -294,20 +290,9 @@ class LPRebalancer(ControllerBase):
             self.logger().warning(f"Price {current_price} appears in range [{lower_price}, {upper_price})")
             return None
 
-        # Step 2: Check if already at limit
-        at_limit = self._is_at_limit(new_side, lower_price, upper_price)
-
-        if at_limit:
-            self.logger().info(
-                f"KEEP position - already at limit (side={new_side}, "
-                f"bounds=[{lower_price}, {upper_price}])"
-            )
-            return None
-
-        # Step 3: Check if new position would be valid
+        # Step 2: Check if new position would be valid (price within limits)
         if not self._is_price_within_limits(current_price, new_side):
-            side_name = "SELL" if new_side == 2 else "BUY"
-            self.logger().info(f"Price {current_price} outside {side_name} limits, keeping position")
+            # Don't log repeatedly - this is checked every tick
             return None
 
         # Step 4: Initiate rebalance
@@ -349,30 +334,13 @@ class LPRebalancer(ControllerBase):
 
         return False  # Price is in range
 
-    def _is_at_limit(self, side: int, lower_price: Decimal, upper_price: Decimal) -> bool:
-        """
-        Check if position is already at the limit for the given side.
-
-        For BUY (side=1): check if upper == buy_price_max
-        For SELL (side=2): check if lower == sell_price_min
-        """
-        if side == 1:  # BUY
-            if self.config.buy_price_max is None:
-                return False  # No limit = never at limit
-            return abs(upper_price - self.config.buy_price_max) < self.PRICE_TOLERANCE
-        elif side == 2:  # SELL
-            if self.config.sell_price_min is None:
-                return False  # No limit = never at limit
-            return abs(lower_price - self.config.sell_price_min) < self.PRICE_TOLERANCE
-        return False
-
     def _create_executor_config(self, side: int) -> Optional[LPExecutorConfig]:
         """
         Create executor config for the given side.
 
         Returns None if bounds are invalid.
         """
-        # Use pool price (fetched in update_processed_data) for accurate bounds
+        # Use pool price (fetched in update_processed_data every tick)
         current_price = self._pool_price
         if current_price is None or current_price == 0:
             self.logger().warning("No pool price available - waiting for update_processed_data")
@@ -394,9 +362,25 @@ class LPRebalancer(ControllerBase):
         if self.config.strategy_type is not None:
             extra_params["strategyType"] = self.config.strategy_type
 
+        # Check if bounds were clamped by price limits
+        clamped = []
+        if side == 1:  # BUY
+            if self.config.buy_price_max and upper_price == self.config.buy_price_max:
+                clamped.append(f"upper=buy_price_max({self.config.buy_price_max})")
+            if self.config.buy_price_min and lower_price == self.config.buy_price_min:
+                clamped.append(f"lower=buy_price_min({self.config.buy_price_min})")
+        elif side == 2:  # SELL
+            if self.config.sell_price_min and lower_price == self.config.sell_price_min:
+                clamped.append(f"lower=sell_price_min({self.config.sell_price_min})")
+            if self.config.sell_price_max and upper_price == self.config.sell_price_max:
+                clamped.append(f"upper=sell_price_max({self.config.sell_price_max})")
+
+        clamped_info = f", clamped: {', '.join(clamped)}" if clamped else ""
+        offset_pct = self.config.position_offset_pct
         self.logger().info(
-            f"Creating position: side={side}, pool_price={current_price}, "
-            f"bounds=[{lower_price}, {upper_price}], base={base_amt}, quote={quote_amt}"
+            f"Creating position: side={side}, pool_price={current_price:.2f}, "
+            f"bounds=[{lower_price:.4f}, {upper_price:.4f}], offset_pct={offset_pct}, "
+            f"base={base_amt:.4f}, quote={quote_amt:.4f}{clamped_info}"
         )
 
         return LPExecutorConfig(
@@ -411,6 +395,7 @@ class LPRebalancer(ControllerBase):
             base_amount=base_amt,
             quote_amount=quote_amt,
             side=side,
+            position_offset_pct=self.config.position_offset_pct,
             extra_params=extra_params if extra_params else None,
             keep_position=False,
         )
@@ -442,8 +427,8 @@ class LPRebalancer(ControllerBase):
         Calculate position bounds based on side and price limits.
 
         Side 0 (BOTH): centered on current price, clamped to [buy_min, sell_max]
-        Side 1 (BUY): upper = price - offset (below current), extends width below
-        Side 2 (SELL): lower = price + offset (above current), extends width above
+        Side 1 (BUY): upper = min(current, buy_price_max) * (1 - offset), lower extends width below
+        Side 2 (SELL): lower = max(current, sell_price_min) * (1 + offset), upper extends width above
 
         The offset ensures single-sided positions start out-of-range so they only
         require one token (SOL for SELL, USDC for BUY).
@@ -463,12 +448,12 @@ class LPRebalancer(ControllerBase):
 
         elif side == 1:  # BUY
             # Position BELOW current price so we only need quote token (USDC)
-            # Apply offset to ensure we start out-of-range
-            anchor_price = current_price * (Decimal("1") - offset)
             if self.config.buy_price_max:
-                upper_price = min(anchor_price, self.config.buy_price_max)
+                upper_price = min(current_price, self.config.buy_price_max)
             else:
-                upper_price = anchor_price
+                upper_price = current_price
+            # Apply offset to decrease upper bound (ensures out-of-range)
+            upper_price = upper_price * (Decimal("1") - offset)
             lower_price = upper_price * (Decimal("1") - width)
             # Clamp lower to floor
             if self.config.buy_price_min:
@@ -476,12 +461,12 @@ class LPRebalancer(ControllerBase):
 
         else:  # SELL
             # Position ABOVE current price so we only need base token (SOL)
-            # Apply offset to ensure we start out-of-range
-            anchor_price = current_price * (Decimal("1") + offset)
             if self.config.sell_price_min:
-                lower_price = max(anchor_price, self.config.sell_price_min)
+                lower_price = max(current_price, self.config.sell_price_min)
             else:
-                lower_price = anchor_price
+                lower_price = current_price
+            # Apply offset to increase lower bound (ensures out-of-range)
+            lower_price = lower_price * (Decimal("1") + offset)
             upper_price = lower_price * (Decimal("1") + width)
             # Clamp upper to ceiling
             if self.config.sell_price_max:
@@ -524,11 +509,7 @@ class LPRebalancer(ControllerBase):
         return True
 
     async def update_processed_data(self):
-        """Called every tick - update pool price from connector when no active position."""
-        # Only fetch pool price when no active executor (needed for creating new positions)
-        if self.active_executor() is not None:
-            return
-
+        """Called every tick - always fetch fresh pool price for accurate position creation."""
         try:
             connector = self.market_data_provider.get_connector(self.config.connector_name)
             if hasattr(connector, 'get_pool_info_by_address'):
