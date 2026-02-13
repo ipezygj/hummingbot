@@ -46,6 +46,11 @@ class CmdlineParser(argparse.ArgumentParser):
                           required=False,
                           dest="v2_conf",
                           help="V2 strategy config file name (from conf/scripts/).")
+        self.add_argument("--script",
+                          type=str,
+                          required=False,
+                          dest="v2_conf",
+                          help="[DEPRECATED] Use --v2 instead. V2 strategy config file name.")
         self.add_argument("--config-password", "-p",
                           type=str,
                           required=False,
@@ -249,6 +254,12 @@ async def run_application(hb: HummingbotApplication, args: argparse.Namespace, c
 
 def main():
     args = CmdlineParser().parse_args()
+
+    # Check for deprecated --script flag
+    import sys
+    if "--script" in sys.argv:
+        print("⚠️  WARNING: The --script flag is deprecated. Please use --v2 instead.")
+        print("   Example: ./bin/hummingbot_quickstart.py --v2 your_config.yml")
 
     # Parse environment variables from Dockerfile.
     # If an environment variable is not empty and it's not defined in the arguments, then we'll use the environment

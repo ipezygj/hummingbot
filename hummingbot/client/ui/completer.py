@@ -369,11 +369,13 @@ class HummingbotCompleter(Completer):
 
     def _complete_v2_config_files(self, document: Document) -> bool:
         text_before_cursor: str = document.text_before_cursor
-        return text_before_cursor.startswith("start --v2 ")
+        return (text_before_cursor.startswith("start --v2 ") or
+                text_before_cursor.startswith("start --script "))
 
     def _complete_strategy_v2_files_with_config(self, document: Document) -> bool:
         text_before_cursor: str = document.text_before_cursor
-        return text_before_cursor.startswith("create --script-config ")
+        return (text_before_cursor.startswith("create --v2-config ") or
+                text_before_cursor.startswith("create --script-config "))
 
     def _complete_controllers_config(self, document: Document) -> bool:
         text_before_cursor: str = document.text_before_cursor
