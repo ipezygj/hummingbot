@@ -523,6 +523,7 @@ class LPRebalancer(ControllerBase):
         """Format status for display."""
         status = []
         box_width = 100
+        price_decimals = 8  # For small-value tokens like memecoins
 
         # Header
         status.append("+" + "-" * box_width + "+")
@@ -569,8 +570,6 @@ class LPRebalancer(ControllerBase):
                 threshold = self.config.rebalance_threshold_pct / Decimal("100")
                 lower_threshold = Decimal(str(lower_price)) * (Decimal("1") - threshold)
                 upper_threshold = Decimal(str(upper_price)) * (Decimal("1") + threshold)
-
-                price_decimals = 8
 
                 # Lower threshold triggers SELL - check sell_price_min
                 if self.config.sell_price_min and lower_threshold < self.config.sell_price_min:
@@ -643,7 +642,7 @@ class LPRebalancer(ControllerBase):
 
                 status.append("|" + " " * box_width + "|")
                 limits_viz = self._create_price_limits_visualization(
-                    current_price_rate, pos_lower, pos_upper
+                    current_price_rate, pos_lower, pos_upper, price_decimals
                 )
                 if limits_viz:
                     for viz_line in limits_viz.split('\n'):
@@ -753,7 +752,8 @@ class LPRebalancer(ControllerBase):
         self,
         current_price: Decimal,
         pos_lower: Optional[Decimal] = None,
-        pos_upper: Optional[Decimal] = None
+        pos_upper: Optional[Decimal] = None,
+        price_decimals: int = 8
     ) -> Optional[str]:
         """Create visualization of sell/buy price limits on unified scale."""
         viz_lines = []
@@ -817,8 +817,8 @@ class LPRebalancer(ControllerBase):
         viz_lines.append("Price Limits:")
 
         # Create labels with price ranges
-        sell_label = f"Sell [{float(self.config.sell_price_min):.2f}-{float(self.config.sell_price_max):.2f}]" if self.config.sell_price_min and self.config.sell_price_max else "Sell"
-        buy_label = f"Buy  [{float(self.config.buy_price_min):.2f}-{float(self.config.buy_price_max):.2f}]" if self.config.buy_price_min and self.config.buy_price_max else "Buy "
+        sell_label = f"Sell [{float(self.config.sell_price_min):.{price_decimals}f}-{float(self.config.sell_price_max):.{price_decimals}f}]" if self.config.sell_price_min and self.config.sell_price_max else "Sell"
+        buy_label = f"Buy  [{float(self.config.buy_price_min):.{price_decimals}f}-{float(self.config.buy_price_max):.{price_decimals}f}]" if self.config.buy_price_min and self.config.buy_price_max else "Buy "
 
         # Find max label length for alignment
         max_label_len = max(len(sell_label), len(buy_label))
@@ -842,8 +842,8 @@ class LPRebalancer(ControllerBase):
             viz_lines.append("  Buy : No limits set")
 
         # Scale line (aligned with bar start)
-        min_str = f'{float(scale_min):.2f}'
-        max_str = f'{float(scale_max):.2f}'
+        min_str = f'{float(scale_min):.{price_decimals}f}'
+        max_str = f'{float(scale_max):.{price_decimals}f}'
         label_padding = max_label_len + 4  # "  " prefix + ": " suffix
         viz_lines.append(f"{' ' * label_padding}{min_str}{' ' * (bar_width - len(min_str) - len(max_str))}{max_str}")
 
