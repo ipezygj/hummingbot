@@ -191,9 +191,6 @@ class HummingbotApplication(*commands):
                 args = self.parser.parse_args(args=command_split)
                 kwargs = vars(args)
 
-                # Check for deprecated flags and show warnings
-                self._check_deprecated_flags(command_split, args)
-
                 if not hasattr(args, "func"):
                     if not self.headless_mode:
                         self.app.handle_tab_command(self, command_split[0], kwargs)
@@ -263,23 +260,6 @@ class HummingbotApplication(*commands):
         """Initialize notifiers by delegating to TradingCore."""
         for notifier in self.trading_core.notifiers:
             notifier.start()
-
-    def _check_deprecated_flags(self, command_split: List[str], args):
-        """Check for deprecated command flags and show appropriate warnings."""
-        if len(command_split) < 2:
-            return
-
-        command = command_split[0]
-
-        # Check for deprecated --script flag in start command
-        if command == "start" and "--script" in command_split:
-            self.notify("⚠️  WARNING: The --script flag is deprecated. Please use --v2 instead.")
-            self.notify("   Example: start --v2 your_config.yml")
-
-        # Check for deprecated --script-config flag in create command
-        if command == "create" and "--script-config" in command_split:
-            self.notify("⚠️  WARNING: The --script-config flag is deprecated. Please use --v2-config instead.")
-            self.notify("   Example: create --v2-config your_strategy")
 
     def init_command_tabs(self) -> Dict[str, CommandTab]:
         """

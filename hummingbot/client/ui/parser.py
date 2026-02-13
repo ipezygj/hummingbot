@@ -47,7 +47,6 @@ def load_parser(hummingbot: "HummingbotApplication", command_tabs) -> ThrowingAr
 
     create_parser = subparsers.add_parser("create", help="Create a new bot")
     create_parser.add_argument("--v2-config", dest="script_to_config", nargs="?", default=None, help="Name of the v2 strategy (from conf/scripts/)")
-    create_parser.add_argument("--script-config", dest="script_to_config", nargs="?", default=None, help="[DEPRECATED] Use --v2-config instead. Name of the v2 strategy")
     create_parser.add_argument("--controller-config", dest="controller_name", nargs="?", default=None, help="Name of the controller")
     create_parser.set_defaults(func=hummingbot.create)
 
@@ -73,8 +72,6 @@ def load_parser(hummingbot: "HummingbotApplication", command_tabs) -> ThrowingAr
     start_parser = subparsers.add_parser("start", help="Start the current bot")
     start_parser.add_argument("--v2", type=str, dest="v2_conf",
                               help="V2 strategy config file name (from conf/scripts/)")
-    start_parser.add_argument("--script", type=str, dest="v2_conf",
-                              help="[DEPRECATED] Use --v2 instead. V2 strategy config file name")
 
     start_parser.set_defaults(func=hummingbot.start)
 
