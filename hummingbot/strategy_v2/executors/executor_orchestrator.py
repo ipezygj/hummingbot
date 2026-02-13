@@ -301,8 +301,9 @@ class ExecutorOrchestrator:
                     for executor in executors_list]):
                 continue
             await asyncio.sleep(2.0)
-        # Store all positions
+        # Store all positions and executors
         self.store_all_positions()
+        self.store_all_executors()
         # Clear executors and trigger garbage collection
         self.active_executors.clear()
 
