@@ -142,8 +142,8 @@ class TestStrategyV2Base(IsolatedAsyncioWrapperTestCase):
 
     def test_filter_executors(self):
         executors = [MagicMock(status=RunnableStatus.RUNNING), MagicMock(status=RunnableStatus.TERMINATED)]
-        strategy = StrategyV2Base({})
-        filtered = strategy.filter_executors(executors, filter_func=lambda x: x.status == RunnableStatus.RUNNING)
+        # Use existing strategy from setUp instead of creating a new one
+        filtered = self.strategy.filter_executors(executors, filter_func=lambda x: x.status == RunnableStatus.RUNNING)
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0].status, RunnableStatus.RUNNING)
 

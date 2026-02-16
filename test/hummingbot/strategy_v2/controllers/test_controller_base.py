@@ -67,9 +67,19 @@ class TestControllerBase(IsolatedAsyncioWrapperTestCase):
         return mock_executor
 
     def test_initialize_candles(self):
+        # Mock get_candles_config to return some config so initialize_candles_feed gets called
+        from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
+        mock_config = CandlesConfig(
+            connector="binance",
+            trading_pair="ETH-USDT", 
+            interval="1m",
+            max_records=100
+        )
+        self.controller.get_candles_config = MagicMock(return_value=[mock_config])
+        
         # Test whether candles are initialized correctly
         self.controller.initialize_candles()
-        self.mock_market_data_provider.initialize_candles_feed.assert_called()
+        self.mock_market_data_provider.initialize_candles_feed.assert_called_once_with(mock_config)
 
     def test_update_config(self):
         # Test the update_config method
@@ -636,7 +646,7 @@ class TestControllerBase(IsolatedAsyncioWrapperTestCase):
             is_active=True
         )
         mock_executor.filled_amount_base = Decimal("0.1")
-        mock_executor.status.value = "RUNNING"
+        mock_executor.status = RunnableStatus.RUNNING
         mock_executor.custom_info = {
             'connector_name': 'binance',
             'trading_pair': 'ETH-USDT',

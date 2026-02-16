@@ -226,6 +226,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
             amount=Decimal("1"),
             breakeven_price=Decimal("1000"),
             unrealized_pnl_quote=Decimal("50"),
+            realized_pnl_quote=Decimal("25"),
             cum_fees_quote=Decimal("5"),
             volume_traded_quote=Decimal("1000")
         )
@@ -240,6 +241,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
             amount=Decimal("0.1"),
             breakeven_price=Decimal("50000"),
             unrealized_pnl_quote=Decimal("-100"),
+            realized_pnl_quote=Decimal("-50"),
             cum_fees_quote=Decimal("10"),
             volume_traded_quote=Decimal("5000")
         )
@@ -352,6 +354,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
             position_executor.early_stop = MagicMock(return_value=None)
             position_executor.executor_info = MagicMock()
             position_executor.executor_info.is_done = True
+            position_executor.config = MagicMock()
             self.orchestrator.active_executors["test"] = [position_executor]
             await self.orchestrator.stop()
             position_executor.early_stop.assert_called_once()
@@ -384,6 +387,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
             amount=Decimal("2"),
             breakeven_price=Decimal("1000"),
             unrealized_pnl_quote=Decimal("100"),
+            realized_pnl_quote=Decimal("50"),
             cum_fees_quote=Decimal("10"),
             volume_traded_quote=Decimal("2000")
         )
@@ -429,6 +433,7 @@ class TestExecutorOrchestrator(unittest.TestCase):
             amount=Decimal("5"),
             breakeven_price=Decimal("2000"),
             unrealized_pnl_quote=Decimal("0"),
+            realized_pnl_quote=Decimal("0"),
             cum_fees_quote=Decimal("0"),
             volume_traded_quote=Decimal("10000")
         )
