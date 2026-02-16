@@ -645,7 +645,7 @@ class TestControllerBase(IsolatedAsyncioWrapperTestCase):
             side=TradeType.BUY,
             is_active=True
         )
-        mock_executor.filled_amount_base = Decimal("0.1")
+        mock_executor.filled_amount_quote = Decimal("0.1")
         mock_executor.status = RunnableStatus.RUNNING
         mock_executor.custom_info = {
             'connector_name': 'binance',

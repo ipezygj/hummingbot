@@ -346,9 +346,11 @@ class TestExecutorOrchestrator(unittest.TestCase):
         self.assertEqual(self.orchestrator.active_executors, {})
 
     @patch.object(ExecutorOrchestrator, "store_all_positions")
-    def test_stop(self, store_all_positions):
+    @patch.object(ExecutorOrchestrator, "store_all_executors")
+    def test_stop(self, store_all_executors, store_all_positions):
         async def test_async():
             store_all_positions.return_value = None
+            store_all_executors.return_value = None
             position_executor = MagicMock(spec=PositionExecutor)
             position_executor.is_closed = False
             position_executor.early_stop = MagicMock(return_value=None)
