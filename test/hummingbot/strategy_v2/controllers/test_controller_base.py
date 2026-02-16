@@ -71,12 +71,12 @@ class TestControllerBase(IsolatedAsyncioWrapperTestCase):
         from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
         mock_config = CandlesConfig(
             connector="binance",
-            trading_pair="ETH-USDT", 
+            trading_pair="ETH-USDT",
             interval="1m",
             max_records=100
         )
         self.controller.get_candles_config = MagicMock(return_value=[mock_config])
-        
+
         # Test whether candles are initialized correctly
         self.controller.initialize_candles()
         self.mock_market_data_provider.initialize_candles_feed.assert_called_once_with(mock_config)
