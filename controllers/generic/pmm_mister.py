@@ -69,6 +69,13 @@ class PMMisterConfig(ControllerConfigBase):
             return OrderType.MARKET
         return parse_enum_value(OrderType, v, "take_profit_order_type")
 
+    @field_validator('open_order_type', mode="before")
+    @classmethod
+    def validate_order_type(cls, v) -> OrderType:
+        if v is None:
+            return OrderType.MARKET
+        return parse_enum_value(OrderType, v, "open_order_type")
+
     @field_validator('buy_spreads', 'sell_spreads', mode="before")
     @classmethod
     def parse_spreads(cls, v):
