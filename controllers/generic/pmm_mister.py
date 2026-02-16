@@ -71,7 +71,7 @@ class PMMisterConfig(ControllerConfigBase):
 
     @field_validator('open_order_type', mode="before")
     @classmethod
-    def validate_order_type(cls, v) -> OrderType:
+    def validate_open_order_type(cls, v) -> OrderType:
         if v is None:
             return OrderType.MARKET
         return parse_enum_value(OrderType, v, "open_order_type")
