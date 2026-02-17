@@ -42,7 +42,7 @@ class PMMisterConfig(ControllerConfigBase):
     min_sell_price_distance_pct: Decimal = Field(default=Decimal("0.005"), json_schema_extra={"is_updatable": True})
 
     leverage: int = Field(default=20, json_schema_extra={"is_updatable": True})
-    position_mode: PositionMode = Field(default="HEDGE")
+    position_mode: PositionMode = Field(default="ONEWAY")
     take_profit: Optional[Decimal] = Field(default=Decimal("0.0001"), gt=0, json_schema_extra={"is_updatable": True})
     take_profit_order_type: Optional[OrderType] = Field(default="LIMIT_MAKER", json_schema_extra={"is_updatable": True})
     open_order_type: Optional[OrderType] = Field(default="LIMIT_MAKER", json_schema_extra={"is_updatable": True})
@@ -52,6 +52,7 @@ class PMMisterConfig(ControllerConfigBase):
     min_skew: Decimal = Field(default=Decimal("1.0"), json_schema_extra={"is_updatable": True})
     global_take_profit: Decimal = Field(default=Decimal("0.03"), json_schema_extra={"is_updatable": True})
     global_stop_loss: Decimal = Field(default=Decimal("0.05"), json_schema_extra={"is_updatable": True})
+    refresh_distance_tolerance: Decimal = Field(default=Decimal("0.01"), json_schema_extra={"is_updatable": True})
 
     @field_validator("take_profit", mode="before")
     @classmethod
@@ -101,11 +102,15 @@ class PMMisterConfig(ControllerConfigBase):
 
     @property
     def triple_barrier_config(self) -> TripleBarrierConfig:
+        # Ensure we're passing OrderType enum values, not strings
+        open_order_type = self.open_order_type if isinstance(self.open_order_type, OrderType) else OrderType.LIMIT_MAKER
+        take_profit_order_type = self.take_profit_order_type if isinstance(self.take_profit_order_type, OrderType) else OrderType.LIMIT_MAKER
+        
         return TripleBarrierConfig(
             take_profit=self.take_profit,
             trailing_stop=None,
-            open_order_type=self.open_order_type,
-            take_profit_order_type=self.take_profit_order_type,
+            open_order_type=open_order_type,
+            take_profit_order_type=take_profit_order_type,
             stop_loss_order_type=OrderType.MARKET,
             time_limit_order_type=OrderType.MARKET
         )
@@ -198,6 +203,43 @@ class PMMister(ControllerBase):
         effectivization_time = self.config.get_position_effectivization_time(trade_type)
 
         return current_time - fill_time >= effectivization_time
+
+    def calculate_theoretical_price(self, level_id: str, reference_price: Decimal) -> Decimal:
+        """Calculate the theoretical price for a given level"""
+        trade_type = self.get_trade_type_from_level_id(level_id)
+        level = self.get_level_from_level_id(level_id)
+        
+        if trade_type == TradeType.BUY:
+            spreads = self.config.buy_spreads
+        else:
+            spreads = self.config.sell_spreads
+            
+        if level >= len(spreads):
+            return reference_price
+            
+        spread_in_pct = Decimal(spreads[level]) * Decimal(self.processed_data.get("spread_multiplier", 1))
+        side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
+        theoretical_price = reference_price * (Decimal("1") + side_multiplier * spread_in_pct)
+        
+        return theoretical_price
+
+    def should_refresh_executor_by_distance(self, executor_info, reference_price: Decimal) -> bool:
+        """Check if executor should be refreshed due to price distance deviation"""
+        level_id = executor_info.custom_info.get("level_id", "")
+        if not level_id or not hasattr(executor_info.config, 'entry_price'):
+            return False
+            
+        current_order_price = executor_info.config.entry_price
+        theoretical_price = self.calculate_theoretical_price(level_id, reference_price)
+        
+        # Calculate distance deviation percentage
+        if theoretical_price == 0:
+            return False
+            
+        distance_deviation = abs(current_order_price - theoretical_price) / theoretical_price
+        
+        # Check if deviation exceeds tolerance
+        return distance_deviation > self.config.refresh_distance_tolerance
 
     def create_actions_proposal(self) -> List[ExecutorAction]:
         """
@@ -331,12 +373,19 @@ class PMMister(ControllerBase):
         return stop_actions
 
     def executors_to_refresh(self) -> List[ExecutorAction]:
-        """Refresh executors that have been active too long"""
+        """Refresh executors that have been active too long or deviated too far from theoretical price"""
+        current_time = self.market_data_provider.time()
+        reference_price = Decimal(self.processed_data.get("reference_price", Decimal("0")))
+        
         executors_to_refresh = self.filter_executors(
             executors=self.executors_info,
             filter_func=lambda x: (
-                not x.is_trading and x.is_active and
-                self.market_data_provider.time() - x.timestamp > self.config.executor_refresh_time
+                not x.is_trading and x.is_active and (
+                    # Time-based refresh condition
+                    current_time - x.timestamp > self.config.executor_refresh_time or
+                    # Distance-based refresh condition
+                    (reference_price > 0 and self.should_refresh_executor_by_distance(x, reference_price))
+                )
             )
         )
         return [StopExecutorAction(
@@ -606,6 +655,7 @@ class PMMister(ControllerBase):
             f"{self.config.connector_name}:{self.config.trading_pair} @ {current_price:.2f}  "
             f"Alloc: {self.config.portfolio_allocation:.1%}  "
             f"Spread×{self.processed_data['spread_multiplier']:.3f}  "
+            f"Refresh Tol: {self.config.refresh_distance_tolerance:.1%}  "
             f"Pos Protect: {'ON' if self.config.position_profit_protection else 'OFF'}"
         )
         status.append(f"│ {header_line:<{inner_width}} │")
@@ -669,12 +719,13 @@ class PMMister(ControllerBase):
         # Refresh tracking information
         near_refresh = refresh_tracking.get('near_refresh', 0)
         refresh_ready = refresh_tracking.get('refresh_ready', 0)
+        distance_violations = refresh_tracking.get('distance_violations', 0)
 
         refresh_info = [
             f"Near Refresh: {near_refresh}",
             f"Ready: {refresh_ready}",
-            f"Threshold: {self.config.executor_refresh_time}s",
-            ""
+            f"Distance Violations: {distance_violations}",
+            f"Threshold: {self.config.executor_refresh_time}s"
         ]
 
         # Execution status
@@ -1226,28 +1277,48 @@ class PMMister(ControllerBase):
         return stats
 
     def _calculate_refresh_tracking(self, current_time: int) -> Dict:
-        """Track executor refresh progress"""
+        """Track executor refresh progress including distance-based refresh conditions"""
         refresh_data = {
             "refresh_candidates": [],
             "near_refresh": 0,
-            "refresh_ready": 0
+            "refresh_ready": 0,
+            "distance_violations": 0
         }
 
         # Get active non-trading executors
         active_not_trading = [e for e in self.executors_info if e.is_active and not e.is_trading]
+        reference_price = Decimal(self.processed_data.get("reference_price", Decimal("0")))
 
         for executor in active_not_trading:
             age = current_time - executor.timestamp
             time_to_refresh = max(0, self.config.executor_refresh_time - age)
             progress_pct = min(Decimal("1"), Decimal(str(age)) / Decimal(str(self.config.executor_refresh_time)))
 
-            ready = time_to_refresh == 0
+            # Check distance-based refresh condition
+            distance_violation = (reference_price > 0 and 
+                                self.should_refresh_executor_by_distance(executor, reference_price))
+            
+            # Calculate distance deviation for display
+            distance_deviation_pct = Decimal("0")
+            if reference_price > 0:
+                level_id = executor.custom_info.get("level_id", "")
+                if level_id and hasattr(executor.config, 'entry_price'):
+                    theoretical_price = self.calculate_theoretical_price(level_id, reference_price)
+                    if theoretical_price > 0:
+                        distance_deviation_pct = abs(executor.config.entry_price - theoretical_price) / theoretical_price
+
+            ready_by_time = time_to_refresh == 0
+            ready_by_distance = distance_violation
+            ready = ready_by_time or ready_by_distance
             near_refresh = time_to_refresh <= (self.config.executor_refresh_time * 0.2)  # Within 20% of refresh time
 
             if ready:
                 refresh_data["refresh_ready"] += 1
             elif near_refresh:
                 refresh_data["near_refresh"] += 1
+                
+            if distance_violation:
+                refresh_data["distance_violations"] += 1
 
             level_id = executor.custom_info.get("level_id", "unknown")
 
@@ -1258,6 +1329,10 @@ class PMMister(ControllerBase):
                 "time_to_refresh": time_to_refresh,
                 "progress_pct": progress_pct,
                 "ready": ready,
+                "ready_by_time": ready_by_time,
+                "ready_by_distance": ready_by_distance,
+                "distance_deviation_pct": distance_deviation_pct,
+                "distance_violation": distance_violation,
                 "near_refresh": near_refresh
             })
 
@@ -1279,18 +1354,27 @@ class PMMister(ControllerBase):
             time_to_refresh = candidate.get('time_to_refresh', 0)
             progress = float(candidate.get('progress_pct', 0))
             ready = candidate.get('ready', False)
+            ready_by_distance = candidate.get('ready_by_distance', False)
+            distance_deviation_pct = candidate.get('distance_deviation_pct', Decimal('0'))
             near_refresh = candidate.get('near_refresh', False)
 
             bar = self._create_progress_bar(progress, bar_width // 2)
 
             if ready:
-                status = "REFRESH NOW!"
-                icon = "🔄"
+                if ready_by_distance:
+                    status = f"DISTANCE! ({distance_deviation_pct:.1%})"
+                    icon = "⚠️"
+                else:
+                    status = "TIME REFRESH!"
+                    icon = "🔄"
             elif near_refresh:
                 status = f"{time_to_refresh}s (Soon)"
                 icon = "⏰"
             else:
-                status = f"{time_to_refresh}s"
+                if distance_deviation_pct > 0:
+                    status = f"{time_to_refresh}s ({distance_deviation_pct:.1%})"
+                else:
+                    status = f"{time_to_refresh}s"
                 icon = "⏳"
 
             lines.append(f"│ {icon} {level_id}: [{bar}] {status:<15} │")
