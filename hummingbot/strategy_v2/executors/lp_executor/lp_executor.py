@@ -9,7 +9,7 @@ from hummingbot.core.data_type.common import TradeType
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.logger import HummingbotLogger
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base
 from hummingbot.strategy_v2.executors.executor_base import ExecutorBase
 from hummingbot.strategy_v2.executors.lp_executor.data_types import LPExecutorConfig, LPExecutorState, LPExecutorStates
 from hummingbot.strategy_v2.models.base import RunnableStatus
@@ -41,7 +41,7 @@ class LPExecutor(ExecutorBase):
 
     def __init__(
         self,
-        strategy: ScriptStrategyBase,
+        strategy: StrategyV2Base,
         config: LPExecutorConfig,
         update_interval: float = 1.0,
         max_retries: int = 10,
