@@ -37,9 +37,11 @@ class PMMisterConfig(ControllerConfigBase):
     buy_position_effectivization_time: int = Field(default=120, json_schema_extra={"is_updatable": True})
     sell_position_effectivization_time: int = Field(default=120, json_schema_extra={"is_updatable": True})
 
-    # Price distance requirements
-    min_buy_price_distance_pct: Decimal = Field(default=Decimal("0.005"), json_schema_extra={"is_updatable": True})
-    min_sell_price_distance_pct: Decimal = Field(default=Decimal("0.005"), json_schema_extra={"is_updatable": True})
+    # Price distance tolerance - prevents placing new orders when existing ones are too close to current price
+    price_distance_tolerance: Decimal = Field(default=Decimal("0.0005"), json_schema_extra={"is_updatable": True})
+    # Refresh tolerance - triggers replacing open orders when price deviates from theoretical level
+    refresh_tolerance: Decimal = Field(default=Decimal("0.0005"), json_schema_extra={"is_updatable": True})
+    tolerance_scaling: Decimal = Field(default=Decimal("1.2"), json_schema_extra={"is_updatable": True})
 
     leverage: int = Field(default=20, json_schema_extra={"is_updatable": True})
     position_mode: PositionMode = Field(default="ONEWAY")
@@ -52,7 +54,6 @@ class PMMisterConfig(ControllerConfigBase):
     min_skew: Decimal = Field(default=Decimal("1.0"), json_schema_extra={"is_updatable": True})
     global_take_profit: Decimal = Field(default=Decimal("0.03"), json_schema_extra={"is_updatable": True})
     global_stop_loss: Decimal = Field(default=Decimal("0.05"), json_schema_extra={"is_updatable": True})
-    refresh_distance_tolerance: Decimal = Field(default=Decimal("0.01"), json_schema_extra={"is_updatable": True})
 
     @field_validator("take_profit", mode="before")
     @classmethod
@@ -100,12 +101,22 @@ class PMMisterConfig(ControllerConfigBase):
     def validate_position_mode(cls, v) -> PositionMode:
         return parse_enum_value(PositionMode, v, "position_mode")
 
+    @field_validator('price_distance_tolerance', 'refresh_tolerance', 'tolerance_scaling', mode="before")
+    @classmethod
+    def validate_tolerance_fields(cls, v, validation_info: ValidationInfo):
+        field_name = validation_info.field_name
+        if isinstance(v, str):
+            return Decimal(v)
+        if field_name == 'tolerance_scaling' and Decimal(str(v)) <= 0:
+            raise ValueError(f"{field_name} must be greater than 0")
+        return v
+
     @property
     def triple_barrier_config(self) -> TripleBarrierConfig:
         # Ensure we're passing OrderType enum values, not strings
         open_order_type = self.open_order_type if isinstance(self.open_order_type, OrderType) else OrderType.LIMIT_MAKER
         take_profit_order_type = self.take_profit_order_type if isinstance(self.take_profit_order_type, OrderType) else OrderType.LIMIT_MAKER
-        
+
         return TripleBarrierConfig(
             take_profit=self.take_profit,
             trailing_stop=None,
@@ -122,6 +133,18 @@ class PMMisterConfig(ControllerConfigBase):
     def get_position_effectivization_time(self, trade_type: TradeType) -> int:
         """Get position effectivization time for specific trade type"""
         return self.buy_position_effectivization_time if trade_type == TradeType.BUY else self.sell_position_effectivization_time
+
+    def get_price_distance_level_tolerance(self, level: int) -> Decimal:
+        """Get level-specific price distance tolerance (for new order placement).
+        Prevents placing new orders when existing ones are too close to current price.
+        """
+        return self.price_distance_tolerance * (self.tolerance_scaling ** level)
+
+    def get_refresh_level_tolerance(self, level: int) -> Decimal:
+        """Get level-specific refresh tolerance (for order replacement).
+        Triggers replacing open orders when price deviates from theoretical level.
+        """
+        return self.refresh_tolerance * (self.tolerance_scaling ** level)
 
     def update_parameters(self, trade_type: TradeType, new_spreads: Union[List[float], str],
                           new_amounts_pct: Optional[Union[List[int], str]] = None):
@@ -208,19 +231,19 @@ class PMMister(ControllerBase):
         """Calculate the theoretical price for a given level"""
         trade_type = self.get_trade_type_from_level_id(level_id)
         level = self.get_level_from_level_id(level_id)
-        
+
         if trade_type == TradeType.BUY:
             spreads = self.config.buy_spreads
         else:
             spreads = self.config.sell_spreads
-            
+
         if level >= len(spreads):
             return reference_price
-            
+
         spread_in_pct = Decimal(spreads[level]) * Decimal(self.processed_data.get("spread_multiplier", 1))
         side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
         theoretical_price = reference_price * (Decimal("1") + side_multiplier * spread_in_pct)
-        
+
         return theoretical_price
 
     def should_refresh_executor_by_distance(self, executor_info, reference_price: Decimal) -> bool:
@@ -228,18 +251,20 @@ class PMMister(ControllerBase):
         level_id = executor_info.custom_info.get("level_id", "")
         if not level_id or not hasattr(executor_info.config, 'entry_price'):
             return False
-            
+
         current_order_price = executor_info.config.entry_price
         theoretical_price = self.calculate_theoretical_price(level_id, reference_price)
-        
+
         # Calculate distance deviation percentage
         if theoretical_price == 0:
             return False
-            
+
         distance_deviation = abs(current_order_price - theoretical_price) / theoretical_price
-        
-        # Check if deviation exceeds tolerance
-        return distance_deviation > self.config.refresh_distance_tolerance
+
+        # Check if deviation exceeds level-specific refresh tolerance
+        level = self.get_level_from_level_id(level_id)
+        level_tolerance = self.config.get_refresh_level_tolerance(level)
+        return distance_deviation > level_tolerance
 
     def create_actions_proposal(self) -> List[ExecutorAction]:
         """
@@ -341,17 +366,21 @@ class PMMister(ControllerBase):
                 cooldown_time = self.config.get_cooldown_time(trade_type)
                 has_active_cooldown = current_time - analysis["open_order_last_update"] < cooldown_time
 
-            # Enhanced price distance logic
+            # Enhanced price distance logic with level-specific tolerance
             price_distance_violated = False
+            level = self.get_level_from_level_id(level_id)
+
             if is_buy and analysis["max_price"]:
                 # For buy orders, ensure they're not too close to current price
                 distance_from_current = (current_price - analysis["max_price"]) / current_price
-                if distance_from_current < self.config.min_buy_price_distance_pct:
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
+                if distance_from_current < level_tolerance:
                     price_distance_violated = True
             elif not is_buy and analysis["min_price"]:
                 # For sell orders, ensure they're not too close to current price
                 distance_from_current = (analysis["min_price"] - current_price) / current_price
-                if distance_from_current < self.config.min_sell_price_distance_pct:
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
+                if distance_from_current < level_tolerance:
                     price_distance_violated = True
 
             # Level is working if any condition is true
@@ -376,7 +405,7 @@ class PMMister(ControllerBase):
         """Refresh executors that have been active too long or deviated too far from theoretical price"""
         current_time = self.market_data_provider.time()
         reference_price = Decimal(self.processed_data.get("reference_price", Decimal("0")))
-        
+
         executors_to_refresh = self.filter_executors(
             executors=self.executors_info,
             filter_func=lambda x: (
@@ -655,7 +684,7 @@ class PMMister(ControllerBase):
             f"{self.config.connector_name}:{self.config.trading_pair} @ {current_price:.2f}  "
             f"Alloc: {self.config.portfolio_allocation:.1%}  "
             f"Spread×{self.processed_data['spread_multiplier']:.3f}  "
-            f"Refresh Tol: {self.config.refresh_distance_tolerance:.1%}  "
+            f"Dist: {self.config.price_distance_tolerance:.4%} Ref: {self.config.refresh_tolerance:.4%} (×{self.config.tolerance_scaling})  "
             f"Pos Protect: {'ON' if self.config.position_profit_protection else 'OFF'}"
         )
         status.append(f"│ {header_line:<{inner_width}} │")
@@ -694,15 +723,18 @@ class PMMister(ControllerBase):
                 distance = (analysis["min_price"] - current_price) / current_price
                 current_sell_distance = f"({distance:.3%})"
 
-        # Enhanced price info with more details
-        buy_violation_marker = " ⚠️" if current_buy_distance and "(0.0" in current_buy_distance else ""
-        sell_violation_marker = " ⚠️" if current_sell_distance and "(0.0" in current_sell_distance else ""
+        # Enhanced price info with unified tolerance approach
+        violation_marker = " ⚠️" if (current_buy_distance and "(0.0" in current_buy_distance) or (current_sell_distance and "(0.0" in current_sell_distance) else ""
+
+        # Show level-specific tolerances
+        dist_l0 = self.config.get_price_distance_level_tolerance(0)
+        dist_l1 = self.config.get_price_distance_level_tolerance(1) if len(self.config.buy_spreads) > 1 else None
 
         price_info = [
-            f"BUY Min: {self.config.min_buy_price_distance_pct:.3%}{buy_violation_marker}",
-            f"Current: {current_buy_distance}",
-            f"SELL Min: {self.config.min_sell_price_distance_pct:.3%}{sell_violation_marker}",
-            f"Current: {current_sell_distance}"
+            f"L0 Dist: {dist_l0:.4%}{violation_marker}",
+            f"BUY Current: {current_buy_distance}",
+            f"L1 Dist: {dist_l1:.4%}" if dist_l1 else "L1: N/A",
+            f"SELL Current: {current_sell_distance}"
         ]
 
         # Effectivization information
@@ -1078,10 +1110,10 @@ class PMMister(ControllerBase):
         return cooldown_status
 
     def _calculate_price_distance_analysis(self, reference_price: Decimal) -> Dict:
-        """Analyze price distance conditions for all levels"""
+        """Analyze price distance conditions for all levels with unified tolerance approach"""
         price_analysis = {
-            "buy": {"violations": [], "distances": [], "min_required": self.config.min_buy_price_distance_pct},
-            "sell": {"violations": [], "distances": [], "min_required": self.config.min_sell_price_distance_pct}
+            "buy": {"violations": [], "distances": [], "base_tolerance": self.config.price_distance_tolerance},
+            "sell": {"violations": [], "distances": [], "base_tolerance": self.config.price_distance_tolerance}
         }
 
         # Analyze all levels for price distance violations
@@ -1090,33 +1122,38 @@ class PMMister(ControllerBase):
         for analysis in all_levels_analysis:
             level_id = analysis["level_id"]
             is_buy = level_id.startswith("buy")
+            level = self.get_level_from_level_id(level_id)
 
             if is_buy and analysis["max_price"]:
                 current_distance = (reference_price - analysis["max_price"]) / reference_price
-                min_required = self.config.min_buy_price_distance_pct
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
 
                 price_analysis["buy"]["distances"].append({
                     "level_id": level_id,
+                    "level": level,
                     "current_distance": current_distance,
                     "distance_pct": current_distance,
-                    "violates": current_distance < min_required
+                    "tolerance": level_tolerance,
+                    "violates": current_distance < level_tolerance
                 })
 
-                if current_distance < min_required:
+                if current_distance < level_tolerance:
                     price_analysis["buy"]["violations"].append(level_id)
 
             elif not is_buy and analysis["min_price"]:
                 current_distance = (analysis["min_price"] - reference_price) / reference_price
-                min_required = self.config.min_sell_price_distance_pct
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
 
                 price_analysis["sell"]["distances"].append({
                     "level_id": level_id,
+                    "level": level,
                     "current_distance": current_distance,
                     "distance_pct": current_distance,
-                    "violates": current_distance < min_required
+                    "tolerance": level_tolerance,
+                    "violates": current_distance < level_tolerance
                 })
 
-                if current_distance < min_required:
+                if current_distance < level_tolerance:
                     price_analysis["sell"]["violations"].append(level_id)
 
         return price_analysis
@@ -1217,15 +1254,18 @@ class PMMister(ControllerBase):
                     conditions["blocking_conditions"].append("cooldown_active")
                     conditions["can_execute"] = False
 
-            # 3. Price distance check
+            # 3. Price distance check with level-specific tolerance
+            level = self.get_level_from_level_id(level_id)
             if is_buy and level_analysis["max_price"]:
                 distance = (reference_price - level_analysis["max_price"]) / reference_price
-                if distance < self.config.min_buy_price_distance_pct:
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
+                if distance < level_tolerance:
                     conditions["blocking_conditions"].append("price_distance_violation")
                     conditions["can_execute"] = False
             elif not is_buy and level_analysis["min_price"]:
                 distance = (level_analysis["min_price"] - reference_price) / reference_price
-                if distance < self.config.min_sell_price_distance_pct:
+                level_tolerance = self.config.get_price_distance_level_tolerance(level)
+                if distance < level_tolerance:
                     conditions["blocking_conditions"].append("price_distance_violation")
                     conditions["can_execute"] = False
 
@@ -1295,9 +1335,8 @@ class PMMister(ControllerBase):
             progress_pct = min(Decimal("1"), Decimal(str(age)) / Decimal(str(self.config.executor_refresh_time)))
 
             # Check distance-based refresh condition
-            distance_violation = (reference_price > 0 and 
-                                self.should_refresh_executor_by_distance(executor, reference_price))
-            
+            distance_violation = (reference_price > 0 and
+                                  self.should_refresh_executor_by_distance(executor, reference_price))
             # Calculate distance deviation for display
             distance_deviation_pct = Decimal("0")
             if reference_price > 0:
@@ -1316,15 +1355,20 @@ class PMMister(ControllerBase):
                 refresh_data["refresh_ready"] += 1
             elif near_refresh:
                 refresh_data["near_refresh"] += 1
-                
+
             if distance_violation:
                 refresh_data["distance_violations"] += 1
 
             level_id = executor.custom_info.get("level_id", "unknown")
+            level = self.get_level_from_level_id(level_id) if level_id != "unknown" else 0
+
+            # Get level-specific refresh tolerance for display
+            level_tolerance = self.config.get_refresh_level_tolerance(level) if level_id != "unknown" else self.config.refresh_tolerance
 
             refresh_data["refresh_candidates"].append({
                 "executor_id": executor.id,
                 "level_id": level_id,
+                "level": level,
                 "age": age,
                 "time_to_refresh": time_to_refresh,
                 "progress_pct": progress_pct,
@@ -1333,6 +1377,7 @@ class PMMister(ControllerBase):
                 "ready_by_distance": ready_by_distance,
                 "distance_deviation_pct": distance_deviation_pct,
                 "distance_violation": distance_violation,
+                "level_tolerance": level_tolerance,
                 "near_refresh": near_refresh
             })
 
@@ -1407,9 +1452,10 @@ class PMMister(ControllerBase):
         graph_max = max_price + padding
         graph_range = graph_max - graph_min
 
-        # Calculate order zones
-        buy_distance = current_price * self.config.min_buy_price_distance_pct
-        sell_distance = current_price * self.config.min_sell_price_distance_pct
+        # Calculate order zones using level 0 price distance tolerance
+        level_0_tolerance = self.config.get_price_distance_level_tolerance(0)
+        buy_distance = current_price * level_0_tolerance
+        sell_distance = current_price * level_0_tolerance
         buy_zone_price = current_price - buy_distance
         sell_zone_price = current_price + sell_distance
 
@@ -1491,7 +1537,9 @@ class PMMister(ControllerBase):
         lines.append(f"│ {'Legend: ● Current price  = Breakeven  B/S Zone boundaries  b/s Recent orders':<{inner_width}} │")
 
         # Add current metrics
-        metrics_line = f"Distance req: Buy {self.config.min_buy_price_distance_pct:.3%} | Sell {self.config.min_sell_price_distance_pct:.3%}"
+        dist_l0 = self.config.get_price_distance_level_tolerance(0)
+        ref_l0 = self.config.get_refresh_level_tolerance(0)
+        metrics_line = f"Dist: L0 {dist_l0:.4%} | Refresh: L0 {ref_l0:.4%} | Scaling: ×{self.config.tolerance_scaling}"
         if breakeven_price:
             distance_to_breakeven = ((current_price - breakeven_price) / current_price) if breakeven_price > 0 else Decimal(0)
             metrics_line += f" | Breakeven gap: {distance_to_breakeven:+.2%}"
