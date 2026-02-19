@@ -366,8 +366,14 @@ class BackpackExchange(ExchangePyBase):
                     "triggerPlaced",
                     "triggerFailed",
                 }:
-                    exchange_order_id = str(data.get("i"))
-                    client_order_id = str(data.get("c"))
+                    # Get IDs, keeping None as None (not converting to string "None")
+                    exchange_order_id = data.get("i")
+                    if exchange_order_id is not None:
+                        exchange_order_id = str(exchange_order_id)
+
+                    client_order_id = data.get("c")
+                    if client_order_id is not None:
+                        client_order_id = str(client_order_id)
 
                     # 1) Resolve tracked order
                     tracked_order = None

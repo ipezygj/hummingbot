@@ -964,3 +964,125 @@ class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         # With empty response, balances should remain unchanged
         self.assertEqual(Decimal("90"), available_balances["SOL"])
         self.assertEqual(Decimal("100"), total_balances["SOL"])
+
+    def test_user_stream_update_with_missing_client_order_id(self):
+        """
+        Test that websocket updates work correctly when client_order_id field is missing (None).
+        The order should be found by exchange_order_id fallback.
+        """
+        self.exchange._set_current_timestamp(1640780000)
+        self.exchange.start_tracking_order(
+            order_id="OID1",
+            exchange_order_id="100234",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            price=Decimal("10000"),
+            amount=Decimal("1"),
+        )
+        order = self.exchange.in_flight_orders["OID1"]
+
+        # Event message with missing 'c' field (client_order_id)
+        event_message = {
+            "data": {
+                "e": "orderCancelled",
+                "E": 1694687692980000,
+                "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                # "c": missing intentionally
+                "S": self._get_side(order),
+                "o": order.order_type.name.upper(),
+                "f": "GTC",
+                "q": str(order.amount),
+                "Q": str(order.amount * order.price),
+                "p": str(order.price),
+                "X": "Cancelled",
+                "i": order.exchange_order_id,  # Should use this to find the order
+                "z": "0",
+                "Z": "0",
+                "V": "RejectTaker",
+                "T": 1694687692989999,
+                "O": "USER",
+                "I": "1111343026156135",
+                "H": 6023471188,
+                "y": True,
+            },
+            "stream": "account.orderUpdate"
+        }
+
+        mock_queue = AsyncMock()
+        mock_queue.get.side_effect = [event_message, asyncio.CancelledError]
+        self.exchange._user_stream_tracker._user_stream = mock_queue
+
+        try:
+            self.async_run_with_timeout(self.exchange._user_stream_event_listener())
+        except asyncio.CancelledError:
+            pass
+
+        # Order should be canceled successfully even without client_order_id in the message
+        self.assertNotIn(order.client_order_id, self.exchange.in_flight_orders)
+        self.assertTrue(order.is_cancelled)
+        self.assertTrue(order.is_done)
+
+    def test_user_stream_fill_update_with_missing_client_order_id(self):
+        """
+        Test that fill updates work correctly when client_order_id field is None.
+        """
+        self.exchange._set_current_timestamp(1640780000)
+        self.exchange.start_tracking_order(
+            order_id="OID2",
+            exchange_order_id="100235",
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.SELL,
+            price=Decimal("10000"),
+            amount=Decimal("1"),
+        )
+        order = self.exchange.in_flight_orders["OID2"]
+
+        # Fill event with missing 'c' field
+        event_message = {
+            "data": {
+                "e": "orderFill",
+                "E": 1694687692980000,
+                "s": self.exchange_symbol_for_tokens(self.base_asset, self.quote_asset),
+                # "c": missing
+                "S": self._get_side(order),
+                "o": order.order_type.name.upper(),
+                "f": "GTC",
+                "q": str(order.amount),
+                "Q": str(order.amount * order.price),
+                "p": str(order.price),
+                "X": "Filled",
+                "i": order.exchange_order_id,
+                "t": 378752121,  # Trade ID
+                "l": str(order.amount),
+                "L": str(order.price),
+                "z": str(order.amount),
+                "Z": str(order.amount * order.price),
+                "m": False,
+                "n": "0.01",
+                "N": self.quote_asset,
+                "V": "RejectTaker",
+                "T": 1694687692989999,
+                "O": "USER",
+                "I": "1111343026156135",
+                "H": 6023471188,
+                "y": True,
+            },
+            "stream": "account.orderUpdate"
+        }
+
+        mock_queue = AsyncMock()
+        mock_queue.get.side_effect = [event_message, asyncio.CancelledError]
+        self.exchange._user_stream_tracker._user_stream = mock_queue
+
+        try:
+            self.async_run_with_timeout(self.exchange._user_stream_event_listener())
+        except asyncio.CancelledError:
+            pass
+
+        # Order should be filled successfully
+        self.assertNotIn(order.client_order_id, self.exchange.in_flight_orders)
+        self.assertTrue(order.is_filled)
+        self.assertTrue(order.is_done)
+        self.assertEqual(order.executed_amount_base, order.amount)
