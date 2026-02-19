@@ -3,7 +3,7 @@ from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCa
 from test.logger_mixin_for_test import LoggerMixinForTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
-from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base
 from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 from hummingbot.strategy_v2.executors.lp_executor.data_types import LPExecutorConfig, LPExecutorStates
 from hummingbot.strategy_v2.executors.lp_executor.lp_executor import LPExecutor
@@ -23,7 +23,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         market_info = MagicMock()
         market_info.market = market
 
-        strategy = MagicMock(spec=ScriptStrategyBase)
+        strategy = MagicMock(spec=StrategyV2Base)
         type(strategy).market_info = PropertyMock(return_value=market_info)
         type(strategy).trading_pair = PropertyMock(return_value="SOL-USDC")
         type(strategy).current_timestamp = PropertyMock(return_value=1234567890.0)
