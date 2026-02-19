@@ -1199,18 +1199,20 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
     @aioresponses()
     async def test_fetch_funding_payment_empty_result(self, req_mock):
-        """Test funding payment fetch when no payments exist - should raise IndexError"""
+        """Test funding payment fetch when no payments exist - should return sentinel values gracefully"""
         self._simulate_trading_rules_initialized()
 
         url = web_utils.private_rest_url(CONSTANTS.FUNDING_PAYMENTS_PATH_URL, domain=self.domain)
         regex_url = re.compile(f"^{url}".replace(".", r"\.").replace("?", r"\?"))
 
-        # Empty list response - current implementation has a bug and will raise IndexError
+        # Empty list response - should be handled gracefully without raising IndexError
         req_mock.get(regex_url, body=json.dumps([]))
 
-        # The current implementation doesn't handle empty list properly
-        with self.assertRaises(IndexError):
-            await self.exchange._fetch_last_fee_payment(self.trading_pair)
+        timestamp, rate, amount = await self.exchange._fetch_last_fee_payment(self.trading_pair)
+
+        self.assertEqual(0, timestamp)
+        self.assertEqual(Decimal("-1"), rate)
+        self.assertEqual(Decimal("-1"), amount)
 
     @aioresponses()
     async def test_initialize_trading_pair_symbols_from_exchange_info(self, req_mock):

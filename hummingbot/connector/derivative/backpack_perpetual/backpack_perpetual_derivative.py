@@ -739,6 +739,8 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         funding_payment_info = await self._api_get(path_url=CONSTANTS.FUNDING_PAYMENTS_PATH_URL,
                                                    params=params,
                                                    is_auth_required=True)
+        if not funding_payment_info:
+            return 0, Decimal("-1"), Decimal("-1")
         last_payment = funding_payment_info[0]
         if last_payment:
             timestamp = pd.Timestamp(last_payment["intervalEndTimestamp"]).timestamp()
