@@ -706,27 +706,25 @@ https://solscan.io/tx/<signature>
 
 ## Scripts
 
-Utility scripts for analyzing and visualizing LP position data. See the [Scripts README](scripts/README.md) for full documentation.
+Utility scripts for analyzing and visualizing LP position data are available through the **LP Agent Skill**.
+
+### Installing the LP Agent Skill
+
+Visit https://skills.hummingbot.org/skill/lp-agent for full documentation and installation instructions.
+
+**Install with:**
+```bash
+npx skills add hummingbot/skills --skill lp-agent
+```
+
+### Available Scripts
 
 | Script | Description |
 |--------|-------------|
-| `visualize_lp_positions.py` | Interactive HTML dashboard from LP position events (recommended) |
+| `visualize_lp_positions.py` | Interactive HTML dashboard from LP position events |
 | `visualize_executors.py` | Interactive HTML dashboard from executor data |
 | `export_lp_positions.py` | Export raw LP add/remove events to CSV |
 | `export_lp_executors.py` | Export executor data to CSV |
-
-### Quick Start
-
-```bash
-# Generate dashboard for SOL-USDC positions
-python controllers/generic/lp_rebalancer/scripts/visualize_lp_positions.py --pair SOL-USDC
-
-# Filter by connector and time
-python controllers/generic/lp_rebalancer/scripts/visualize_lp_positions.py --pair SOL-USDC --connector meteora/clmm --hours 24
-
-# Export raw events
-python controllers/generic/lp_rebalancer/scripts/export_lp_positions.py --pair SOL-USDC
-```
 
 ---
 
