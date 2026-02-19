@@ -164,15 +164,15 @@ strategy_type: 0                       # Connector-specific (Meteora strategy ty
 ```
 Price:    84        85        86        87        88        89
           |---------|---------|---------|---------|---------|
-                    ^                   ^         ^         ^
-               buy_min             sell_min   buy_max   sell_max
-                    |                   |         |         |
-                    +-------------------+---------+         |
-                           BUY ZONE [85-87]                 |
-                                        +-------------------+
-                                          SELL ZONE [86-88]
-                                   +---------+
-                                   OVERLAP [86-87]
+                    ^         ^         ^         ^
+               buy_min   sell_min   buy_max   sell_max
+                    |         |         |         |
+                    +---------+---------+         |
+                       BUY ZONE [85-87]           |
+                              +---------+---------+
+                                SELL ZONE [86-88]
+                              +---------+
+                              OVERLAP [86-87]
 ```
 
 ---
