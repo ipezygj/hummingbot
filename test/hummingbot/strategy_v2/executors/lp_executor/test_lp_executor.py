@@ -244,6 +244,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         executor.lp_position_state.base_fee = Decimal("0.01")
         executor.lp_position_state.quote_fee = Decimal("1.0")
         executor.lp_position_state.position_rent = Decimal("0.002")
+        executor.lp_position_state.tx_fee = Decimal("0.0001")
 
         info = executor.get_custom_info()
 
@@ -256,6 +257,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         self.assertEqual(info["base_amount"], 1.0)
         self.assertEqual(info["quote_amount"], 100.0)
         self.assertEqual(info["position_rent"], 0.002)
+        self.assertEqual(info["tx_fee"], 0.0001)
 
     async def test_update_pool_info_success(self):
         """Test update_pool_info fetches pool info"""
@@ -607,7 +609,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         connector = self.strategy.connectors["meteora/clmm"]
         connector._clmm_add_liquidity = AsyncMock(return_value="sig123")
         connector._lp_orders_metadata = {
-            "order-123": {"position_address": "pos456", "position_rent": Decimal("0.002")}
+            "order-123": {"position_address": "pos456", "position_rent": Decimal("0.002"), "tx_fee": Decimal("0.0001")}
         }
 
         mock_position = MagicMock()
@@ -625,6 +627,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
 
         self.assertEqual(executor.lp_position_state.position_address, "pos456")
         self.assertEqual(executor.lp_position_state.position_rent, Decimal("0.002"))
+        self.assertEqual(executor.lp_position_state.tx_fee, Decimal("0.0001"))
         self.assertIsNone(executor.lp_position_state.active_open_order)
         self.assertEqual(executor._current_retries, 0)
         connector._trigger_add_liquidity_event.assert_called_once()
@@ -676,7 +679,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         connector = self.strategy.connectors["meteora/clmm"]
         connector._clmm_add_liquidity = AsyncMock(return_value="sig123")
         connector._lp_orders_metadata = {
-            "order-123": {"position_address": "pos456", "position_rent": Decimal("0.002")}
+            "order-123": {"position_address": "pos456", "position_rent": Decimal("0.002"), "tx_fee": Decimal("0.0001")}
         }
 
         mock_position = MagicMock()
@@ -779,7 +782,8 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
                 "quote_amount": Decimal("100.0"),
                 "base_fee": Decimal("0.01"),
                 "quote_fee": Decimal("1.0"),
-                "position_rent_refunded": Decimal("0.002")
+                "position_rent_refunded": Decimal("0.002"),
+                "tx_fee": Decimal("0.0001")
             }
         }
         connector._trigger_remove_liquidity_event = MagicMock()
@@ -806,7 +810,8 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
                 "quote_amount": Decimal("100.0"),
                 "base_fee": Decimal("0.01"),
                 "quote_fee": Decimal("1.0"),
-                "position_rent_refunded": Decimal("0.002")
+                "position_rent_refunded": Decimal("0.002"),
+                "tx_fee": Decimal("0.0001")
             }
         }
         connector._trigger_remove_liquidity_event = MagicMock()
@@ -818,6 +823,7 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         self.assertEqual(executor.lp_position_state.base_amount, Decimal("1.0"))
         self.assertEqual(executor.lp_position_state.quote_amount, Decimal("100.0"))
         self.assertEqual(executor.lp_position_state.position_rent_refunded, Decimal("0.002"))
+        self.assertEqual(executor.lp_position_state.tx_fee, Decimal("0.0001"))  # Close tx_fee added
         connector._trigger_remove_liquidity_event.assert_called_once()
 
     async def test_close_position_exception(self):

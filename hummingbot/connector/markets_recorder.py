@@ -584,6 +584,25 @@ class MarketsRecorder:
         elif event_type == MarketEvent.RangePositionLiquidityRemoved:
             order_action = "REMOVE"
 
+        # Calculate trade_fee_in_quote similar to _did_fill_order
+        trading_pair = getattr(evt, 'trading_pair', None)
+        mid_price = Decimal(str(getattr(evt, 'mid_price', 0) or 0))
+        base_amount = Decimal(str(getattr(evt, 'base_amount', 0) or 0))
+        fee_in_quote = Decimal("0")
+        if trading_pair:
+            _, quote_asset = trading_pair.split("-")
+            try:
+                fee_in_quote = evt.trade_fee.fee_amount_in_token(
+                    trading_pair=trading_pair,
+                    price=mid_price,
+                    order_amount=base_amount,
+                    token=quote_asset,
+                    exchange=connector
+                )
+            except Exception as e:
+                self.logger().error(f"Error calculating fee in quote for LP position: {e}, will be stored as 0.")
+                fee_in_quote = Decimal("0")
+
         with self._sql_manager.get_new_session() as session:
             with session.begin():
                 rp_update: RangePositionUpdate = RangePositionUpdate(
@@ -592,16 +611,17 @@ class MarketsRecorder:
                     tx_hash=evt.exchange_order_id,
                     token_id=getattr(evt, 'token_id', 0) or 0,
                     trade_fee=evt.trade_fee.to_json(),
+                    trade_fee_in_quote=float(fee_in_quote),
                     # P&L tracking fields
                     config_file_path=self._config_file_path,
                     market=connector.display_name,
                     order_action=order_action,
-                    trading_pair=getattr(evt, 'trading_pair', None),
+                    trading_pair=trading_pair,
                     position_address=getattr(evt, 'position_address', None),
                     lower_price=float(getattr(evt, 'lower_price', 0) or 0),
                     upper_price=float(getattr(evt, 'upper_price', 0) or 0),
-                    mid_price=float(getattr(evt, 'mid_price', 0) or 0),
-                    base_amount=float(getattr(evt, 'base_amount', 0) or 0),
+                    mid_price=float(mid_price),
+                    base_amount=float(base_amount),
                     quote_amount=float(getattr(evt, 'quote_amount', 0) or 0),
                     base_fee=float(getattr(evt, 'base_fee', 0) or 0),
                     quote_fee=float(getattr(evt, 'quote_fee', 0) or 0),

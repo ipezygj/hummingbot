@@ -6,7 +6,7 @@ from typing import Dict, Optional, Union
 from hummingbot.connector.gateway.gateway_lp import AMMPoolInfo, CLMMPoolInfo
 from hummingbot.connector.utils import split_hb_trading_pair
 from hummingbot.core.data_type.common import TradeType
-from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee
+from hummingbot.core.data_type.trade_fee import TokenAmount, TradeFeeBase
 from hummingbot.core.rate_oracle.rate_oracle import RateOracle
 from hummingbot.logger import HummingbotLogger
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base
@@ -218,9 +218,10 @@ class LPExecutor(ExecutorBase):
                 await self._handle_create_failure(ValueError("Position creation failed - no position address in response"))
                 return
 
-            # Store position address and rent from transaction response
+            # Store position address, rent, and tx_fee from transaction response
             self.lp_position_state.position_address = position_address
             self.lp_position_state.position_rent = metadata.get("position_rent", Decimal("0"))
+            self.lp_position_state.tx_fee = metadata.get("tx_fee", Decimal("0"))
 
             # Position is created - clear open order and reset retries
             self.lp_position_state.active_open_order = None
@@ -272,6 +273,13 @@ class LPExecutor(ExecutorBase):
 
             # Trigger event for database recording (lphistory command)
             # Note: mid_price is the current MARKET price, not the position range midpoint
+            # Create trade_fee with tx_fee in native currency for proper tracking
+            native_currency = getattr(connector, '_native_currency', 'SOL') or 'SOL'
+            trade_fee = TradeFeeBase.new_spot_fee(
+                fee_schema=connector.trade_fee_schema(),
+                trade_type=TradeType.RANGE,
+                flat_fees=[TokenAmount(amount=self.lp_position_state.tx_fee, token=native_currency)]
+            )
             connector._trigger_add_liquidity_event(
                 order_id=order_id,
                 exchange_order_id=signature,
@@ -281,7 +289,7 @@ class LPExecutor(ExecutorBase):
                 amount=self.lp_position_state.base_amount + self.lp_position_state.quote_amount / current_price,
                 fee_tier=self.config.pool_address,
                 creation_timestamp=self._strategy.current_timestamp,
-                trade_fee=AddedToCostTradeFee(),
+                trade_fee=trade_fee,
                 position_address=position_address,
                 base_amount=self.lp_position_state.base_amount,
                 quote_amount=self.lp_position_state.quote_amount,
@@ -463,6 +471,9 @@ class LPExecutor(ExecutorBase):
             self.lp_position_state.quote_amount = metadata.get("quote_amount", Decimal("0"))
             self.lp_position_state.base_fee = metadata.get("base_fee", Decimal("0"))
             self.lp_position_state.quote_fee = metadata.get("quote_fee", Decimal("0"))
+            # Add close tx_fee to cumulative total (open tx_fee + close tx_fee)
+            close_tx_fee = metadata.get("tx_fee", Decimal("0"))
+            self.lp_position_state.tx_fee += close_tx_fee
 
             # Clean up connector metadata
             if order_id in connector._lp_orders_metadata:
@@ -478,13 +489,20 @@ class LPExecutor(ExecutorBase):
             # Trigger event for database recording (lphistory command)
             # Note: mid_price is the current MARKET price, not the position range midpoint
             current_price = Decimal(str(self._pool_info.price)) if self._pool_info else Decimal("0")
+            # Create trade_fee with close tx_fee in native currency for proper tracking
+            native_currency = getattr(connector, '_native_currency', 'SOL') or 'SOL'
+            trade_fee = TradeFeeBase.new_spot_fee(
+                fee_schema=connector.trade_fee_schema(),
+                trade_type=TradeType.RANGE,
+                flat_fees=[TokenAmount(amount=close_tx_fee, token=native_currency)]
+            )
             connector._trigger_remove_liquidity_event(
                 order_id=order_id,
                 exchange_order_id=signature,
                 trading_pair=self.config.market.trading_pair,
                 token_id="0",
                 creation_timestamp=self._strategy.current_timestamp,
-                trade_fee=AddedToCostTradeFee(),
+                trade_fee=trade_fee,
                 position_address=self.lp_position_state.position_address,
                 lower_price=self.lp_position_state.lower_price,
                 upper_price=self.lp_position_state.upper_price,
@@ -568,13 +586,20 @@ class LPExecutor(ExecutorBase):
             f"fees: {self.lp_position_state.base_fee} base / {self.lp_position_state.quote_fee} quote"
         )
 
+        # For synthetic events, we don't have the actual close tx_fee, so use 0
+        native_currency = getattr(connector, '_native_currency', 'SOL') or 'SOL'
+        trade_fee = TradeFeeBase.new_spot_fee(
+            fee_schema=connector.trade_fee_schema(),
+            trade_type=TradeType.RANGE,
+            flat_fees=[TokenAmount(amount=Decimal("0"), token=native_currency)]
+        )
         connector._trigger_remove_liquidity_event(
             order_id=order_id,
             exchange_order_id="already-closed",
             trading_pair=self.config.market.trading_pair,
             token_id="0",
             creation_timestamp=self._strategy.current_timestamp,
-            trade_fee=AddedToCostTradeFee(),
+            trade_fee=trade_fee,
             position_address=self.lp_position_state.position_address,
             lower_price=self.lp_position_state.lower_price,
             upper_price=self.lp_position_state.upper_price,
@@ -684,6 +709,7 @@ class LPExecutor(ExecutorBase):
             "unrealized_pnl_quote": float(self.get_net_pnl_quote()),
             "position_rent": float(self.lp_position_state.position_rent),
             "position_rent_refunded": float(self.lp_position_state.position_rent_refunded),
+            "tx_fee": float(self.lp_position_state.tx_fee),
             "out_of_range_seconds": self.lp_position_state.get_out_of_range_seconds(current_time),
             "max_retries_reached": self._max_retries_reached,
             # Initial amounts (actual deposited) for inventory tracking; fall back to config if not set

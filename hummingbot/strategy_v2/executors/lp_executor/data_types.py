@@ -82,9 +82,10 @@ class LPExecutorState(BaseModel):
     # Market price at ADD time for accurate P&L calculation
     add_mid_price: Decimal = Decimal("0")
 
-    # Rent tracking
+    # Rent and fee tracking
     position_rent: Decimal = Decimal("0")  # SOL rent paid to create position (ADD only)
     position_rent_refunded: Decimal = Decimal("0")  # SOL rent refunded on close (REMOVE only)
+    tx_fee: Decimal = Decimal("0")  # Transaction fee paid (both ADD and REMOVE)
 
     # Order tracking
     active_open_order: Optional[TrackedOrder] = None

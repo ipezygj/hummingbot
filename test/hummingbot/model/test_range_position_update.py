@@ -56,6 +56,7 @@ class TestRangePositionUpdate(unittest.TestCase):
             tx_hash="tx_sig_456",
             token_id=0,
             trade_fee='{"flat_fees": []}',
+            trade_fee_in_quote=0.15,
             config_file_path="conf_lp_test.yml",
             market="meteora/clmm",
             order_action="REMOVE",
@@ -76,6 +77,7 @@ class TestRangePositionUpdate(unittest.TestCase):
         self.assertEqual(update.timestamp, 1234567892)
         self.assertEqual(update.tx_hash, "tx_sig_456")
         self.assertEqual(update.token_id, 0)
+        self.assertEqual(update.trade_fee_in_quote, 0.15)
         self.assertEqual(update.config_file_path, "conf_lp_test.yml")
         self.assertEqual(update.market, "meteora/clmm")
         self.assertEqual(update.order_action, "REMOVE")
