@@ -188,6 +188,26 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         # PnL = 200 + 2 - 200 = 2
         self.assertEqual(executor.get_net_pnl_quote(), Decimal("2"))
 
+    def test_get_net_pnl_quote_subtracts_tx_fee(self):
+        """Test get_net_pnl_quote subtracts tx_fee from P&L"""
+        executor = self.get_executor()
+        executor._current_price = Decimal("100")
+
+        # Config: base=1.0, quote=100 -> initial = 1.0*100 + 100 = 200
+        # Current: base=1.1, quote=90, base_fee=0.01, quote_fee=1
+        executor.lp_position_state.base_amount = Decimal("1.1")
+        executor.lp_position_state.quote_amount = Decimal("90")
+        executor.lp_position_state.base_fee = Decimal("0.01")
+        executor.lp_position_state.quote_fee = Decimal("1.0")
+        executor.lp_position_state.tx_fee = Decimal("0.5")  # 0.5 SOL tx fee
+
+        # Current = 1.1*100 + 90 = 200
+        # Fees = 0.01*100 + 1 = 2
+        # PnL before tx_fee = 200 + 2 - 200 = 2
+        # tx_fee (converted at rate 1) = 0.5
+        # Net PnL = 2 - 0.5 = 1.5
+        self.assertEqual(executor.get_net_pnl_quote(), Decimal("1.5"))
+
     def test_get_net_pnl_pct_zero_pnl(self):
         """Test get_net_pnl_pct returns 0 when pnl is 0"""
         executor = self.get_executor()
@@ -208,9 +228,15 @@ class TestLPExecutor(IsolatedAsyncioWrapperTestCase, LoggerMixinForTest):
         self.assertEqual(executor.get_net_pnl_pct(), Decimal("1"))
 
     def test_get_cum_fees_quote(self):
-        """Test get_cum_fees_quote returns 0 (tx fees not tracked)"""
+        """Test get_cum_fees_quote returns tx_fee converted to global token"""
         executor = self.get_executor()
+        # No tx_fee set, should return 0
         self.assertEqual(executor.get_cum_fees_quote(), Decimal("0"))
+
+        # Set tx_fee (in native currency SOL)
+        executor.lp_position_state.tx_fee = Decimal("0.001")
+        # Without rate oracle, native_to_global_rate returns 1
+        self.assertEqual(executor.get_cum_fees_quote(), Decimal("0.001"))
 
     async def test_validate_sufficient_balance(self):
         """Test validate_sufficient_balance passes (handled by connector)"""

@@ -644,6 +644,31 @@ class LPExecutor(ExecutorBase):
 
         return Decimal("1")  # Fallback to no conversion
 
+    def _get_native_to_quote_rate(self) -> Decimal:
+        """
+        Get conversion rate from native currency (SOL) to pool quote currency.
+
+        Used to convert transaction fees (paid in native currency) to quote.
+
+        Returns Decimal("1") if rate is not available.
+        """
+        connector = self.connectors.get(self.config.market.connector_name)
+        native_currency = getattr(connector, '_native_currency', 'SOL') or 'SOL'
+        _, quote_token = split_hb_trading_pair(self.config.market.trading_pair)
+
+        # If native currency is the quote token, no conversion needed
+        if native_currency == quote_token:
+            return Decimal("1")
+
+        try:
+            rate = RateOracle.get_instance().get_pair_rate(f"{native_currency}-{quote_token}")
+            if rate is not None and rate > 0:
+                return rate
+        except Exception as e:
+            self.logger().debug(f"Could not get rate for {native_currency}-{quote_token}: {e}")
+
+        return Decimal("1")  # Fallback to no conversion
+
     @property
     def filled_amount_quote(self) -> Decimal:
         """Returns initial investment value in global token (USD).
@@ -768,11 +793,15 @@ class LPExecutor(ExecutorBase):
             self.lp_position_state.quote_fee
         )
 
-        # P&L in pool quote currency
+        # P&L in pool quote currency (before tx fees)
         pnl_in_quote = current_value + fees_earned - initial_value
 
+        # Subtract transaction fees (tx_fee is in native currency, convert to quote)
+        tx_fee_quote = self.lp_position_state.tx_fee * self._get_native_to_quote_rate()
+        net_pnl_quote = pnl_in_quote - tx_fee_quote
+
         # Convert to global token (USD)
-        return pnl_in_quote * self._get_quote_to_global_rate()
+        return net_pnl_quote * self._get_quote_to_global_rate()
 
     def get_net_pnl_pct(self) -> Decimal:
         """Returns net P&L as percentage of initial investment.
@@ -816,8 +845,9 @@ class LPExecutor(ExecutorBase):
 
         NOTE: This is for transaction/gas costs, NOT LP fees earned.
         LP fees earned are included in get_net_pnl_quote() calculation.
+        Transaction fees are paid in native currency (SOL) and converted to quote.
         """
-        return Decimal("0")
+        return self.lp_position_state.tx_fee * self._get_native_to_quote_rate()
 
     async def update_pool_info(self):
         """Fetch and store current pool info"""
