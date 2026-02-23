@@ -207,6 +207,8 @@ class ExecutorOrchestrator:
         """
         Update the cached performance for a specific controller with an executor's information.
         """
+        if controller_id not in self.cached_performance:
+            self.cached_performance[controller_id] = PerformanceReport()
         report = self.cached_performance[controller_id]
         # Only add to realized PnL if not a position hold (consistent with generate_performance_report)
         if executor_info.close_type != CloseType.POSITION_HOLD:
