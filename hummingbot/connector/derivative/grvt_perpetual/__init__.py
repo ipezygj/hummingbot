@@ -1,0 +1,2 @@
+from .grvt_perpetual_derivative import GrvtPerpetualDerivative
+CONN_CLASS = GrvtPerpetualDerivative
