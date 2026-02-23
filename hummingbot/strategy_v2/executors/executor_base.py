@@ -415,3 +415,4 @@ class ExecutorBase(RunnableBase):
         :param event: The event.
         """
         pass
+        self.store_executor()
