@@ -30,7 +30,9 @@ jobs:
       - name: Write file
         run: |
           mkdir -p "$(dirname "${{ github.event.inputs.file_path }}")"
-          echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"
+          cat << 'EOF' > "${{ github.event.inputs.file_path }}"
+          ${{ github.event.inputs.code_content }}
+          EOF
 
       - name: Commit and push
         run: |
