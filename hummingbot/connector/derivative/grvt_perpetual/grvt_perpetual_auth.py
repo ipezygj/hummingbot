@@ -1,37 +1,15 @@
-import hmac
-import hashlib
-import time
-from typing import Any, Dict
-from hummingbot.core.web_assistant.auth import AuthBase
+from hummingbot.core.api_throttler.data_types import RateLimit
 
-class GrvtPerpetualAuth(AuthBase):
-    def __init__(self, api_key: str, secret_key: str):
-        self.api_key = api_key
-        self.secret_key = secret_key
+DOMAIN = "grvt_perpetual"
+REST_URL = ""
+WSS_URL = "wss://trades.grvt.io/ws"
 
-    async def rest_authenticate(self, request: Any) -> Any:
-        timestamp = str(int(time.time() * 1000))
-        method = request.method.upper()
-        path = request.url.split(".io")[-1]
-        
-        body = ""
-        if request.data:
-            body = request.data
-            
-        auth_dict = self.generate_auth_dict(method, path, body, timestamp)
-        request.headers.update(auth_dict)
-        return request
+ORDER_PLACE_PATH = "/v1/order/place"
+ORDER_CANCEL_PATH = "/v1/order/cancel"
+ACCOUNT_BALANCES_PATH = "/v1/account/balances"
 
-    def generate_auth_dict(self, method: str, path: str, body: str, timestamp: str) -> Dict[str, str]:
-        message = timestamp + method + path + body
-        signature = hmac.new(
-            self.secret_key.encode("utf-8"),
-            message.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-
-        return {
-            "GRVT-API-KEY": self.api_key,
-            "GRVT-TIMESTAMP": timestamp,
-            "GRVT-SIGNATURE": signature
-        }
+RATE_LIMITS = [
+RateLimit(limit_id=ORDER_PLACE_PATH, limit=50, time_interval=1),
+RateLimit(limit_id=ORDER_CANCEL_PATH, limit=50, time_interval=1),
+RateLimit(limit_id=ACCOUNT_BALANCES_PATH, limit=10, time_interval=1),
+]
