@@ -1,1 +1,0 @@
-grvt_perpetual_derivative.py
