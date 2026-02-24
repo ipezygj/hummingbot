@@ -1,4 +1,4 @@
-name: Gandalfs Bridge
+Name: Gandalfs Bridge
 
 on:
   workflow_dispatch:
