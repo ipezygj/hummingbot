@@ -1,1 +1,1 @@
-Adding
+from decimal import Decimal from hummingbot.core.data_type.common import OrderType  def get_new_client_order_id(is_buy: bool, symbol: str) -> str: side = "B" if is_buy else "S" return f"{side}-{symbol}-{hex(int(Decimal('1000000')))[2:]}"  def is_replicate_order(order_type: OrderType) -> bool: return order_type in [OrderType.LIMIT, OrderType.LIMIT_MAKER]
