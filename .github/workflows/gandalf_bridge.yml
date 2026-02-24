@@ -2,6 +2,16 @@ name: Gandalfs Bridge
 
 on:
   workflow_dispatch:
+    inputs:
+      task_name:
+        description: "Task"
+        required: true
+      code_content:
+        description: "Code"
+        required: true
+      file_path:
+        description: "Path"
+        required: true
 
 permissions:
   contents: write
@@ -9,7 +19,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: echo "Workflow works!"
+      - name: Write file
+        run: |
+          FILE_PATH="${{ github.event.inputs.file_path }}"
+          CONTENT="${{ github.event.inputs.code_content }}"
+          mkdir -p "$(dirname "$FILE_PATH")"
+          echo "$CONTENT" > "$FILE_PATH"
+
+      - name: Commit and push
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git add .
+          git commit -m "update" || echo "No changes"
+          git push
