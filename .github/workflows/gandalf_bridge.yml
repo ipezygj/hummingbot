@@ -6,15 +6,12 @@ on:
       task_name:
         description: "Task"
         required: true
-        type: string
       code_content:
         description: "Code"
         required: true
-        type: string
       file_path:
         description: "Path"
         required: true
-        type: string
 
 permissions:
   contents: write
@@ -26,16 +23,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write file
         run: |
-          mkdir -p "$(dirname "${{ inputs.file_path }}")"
-          echo "${{ inputs.code_content }}" > "${{ inputs.file_path }}"
+          mkdir -p "$(dirname "${{ github.event.inputs.file_path }}")"
+          echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"
 
       - name: Commit and push
         run: |
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git add .
-          git commit -m "update" || exit 0
+          git commit -m "update" || echo "No changes"
           git push
