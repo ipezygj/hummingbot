@@ -1,5 +1,3 @@
-Looking at the error, the file appears to be corrupted. Here's the proper authentication file for vertex perpetual:
-
 import time
 from typing import Any, Dict, Optional
 from eth_account import Account
