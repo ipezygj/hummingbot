@@ -2,7 +2,6 @@ import time
 from typing import Any, Dict, Optional
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from web3 import Web3
 
 from hummingbot.connector.derivative.vertex_perpetual.vertex_perpetual_constants import VERTEX_CHAIN_ID
 from hummingbot.core.web_assistant.auth import AuthBase
