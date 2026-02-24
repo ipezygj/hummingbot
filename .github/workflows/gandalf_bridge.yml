@@ -1,25 +1,29 @@
 name: Gandalfs Bridge
+
 on:
   workflow_dispatch:
-  inputs:
-    task_name:
-      description: 'Task'
-      required: true
-    code_content:
-      description: 'Code'
-      required: true
-     file_path:
-       description: 'Path'
-       required: true
+    inputs:
+      task_name:
+        description: 'Task'
+        required: true
+      code_content:
+        description: 'Code'
+        required: true
+      file_path:
+        description: 'Path'
+        required: true
+
 jobs:
   build:
-     runs-on: ubuntu-latest
-     steps:
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v3
+
       - name: Write
         run: |
-         mkdir -p $(dirname "${{ github.event.inputs.file_path }}")
-         echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"
+          mkdir -p $(dirname "${{ github.event.inputs.file_path }}")
+          echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"
+
       - name: Push
         run: |
           git config --global user.name "bot"
