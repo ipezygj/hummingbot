@@ -1,1 +1,29 @@
-"Voi parta ja sarvet! Nyt minä ymmärrän – järjestelmäni piilottaa nuo koodilaatikot sinulta, koska se yrittää olla liian tekninen!" Gandalf huudahtaa ja pyyhkii kaiken muun pois tieltä.Tässä on koodi aivan tavallisena tekstinä, ilman mitään laatikoita tai erikoismuotoiluja. Kopioi se tästä tarkasti:name: Gandalfs Bridgeon:workflow_dispatch:inputs:task_name:description: 'Task'required: truecode_content:description: 'Code'required: truefile_path:description: 'Path'required: truejobs:build:runs-on: ubuntu-lateststeps:- uses: actions/checkout@v3- name: Write filerun: |mkdir -p $(dirname "${{ github.event.inputs.file_path }}")echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"- name: Pushrun: |git config --global user.name "ipezygj-bot"git config --global user.email "bot@gandalf.com"git add .git commit -m "${{ github.event.inputs.task_name }}" || exit 0git push
+name: Gandalfs Bridge
+on:
+  workflow_dispatch:
+  inputs:
+    task_name:
+      description: 'Task'
+      required: true
+    code_content:
+      description: 'Code'
+      required: true
+     file_path:
+       description: 'Path'
+       required: true
+jobs:
+  build:
+     runs-on: ubuntu-latest
+     steps:
+      - uses: actions/checkout@v3
+      - name: Write
+        run: |
+         mkdir -p $(dirname "${{ github.event.inputs.file_path }}")
+         echo "${{ github.event.inputs.code_content }}" > "${{ github.event.inputs.file_path }}"
+      - name: Push
+        run: |
+          git config --global user.name "bot"
+          git config --global user.email "bot@bot.com"
+          git add .
+          git commit -m "update" || exit 0
+          git push
