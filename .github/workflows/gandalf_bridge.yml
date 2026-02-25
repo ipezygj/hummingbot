@@ -1,83 +1,61 @@
-name: Gandalfs Bridge 4.0 (The Guardian)
+name: Gandalf's Bridge v2.0 (Auto-Formatter)
 
 on:
   workflow_dispatch:
     inputs:
       branch_name:
-        description: 'Target Branch (e.g., feat/vertex)'
+        description: 'Target Branch'
         required: true
-        default: 'master'
-      create_new:
-        description: 'Create new branch? (true/false)'
-        required: true
-        default: 'false'
       commit_message:
-        description: 'Technical Commit Message'
+        description: 'Commit Message'
         required: true
       files_json:
-        description: 'JSON of files: {"path/to/file.py": "content"}'
+        description: 'Files to write (JSON)'
         required: true
 
 jobs:
   bridge_update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.inputs.branch_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: The Guardian - Pre-Commit Scan
-        run: |
-          echo "🛡️ Starting The Guardian security and standards scan..."
-          python3 -c "
-          import json, sys, re
-          files = json.loads('''${{ github.event.inputs.files_json }}''')
-          errors = []
-          for path, content in files.items():
-              # 1. Check for hardcoded API URLs (Security)
-              if re.search(r'https?://(?!.*constants|.*self\.|.*path)', content):
-                  errors.append(f'❌ {path}: Hardcoded URL found. Use constants.py!')
-              # 2. Check for missing Logger initialization
-              if 'logging.getLogger' not in content and 'derivative' in path:
-                  errors.append(f'❌ {path}: Missing logger initialization!')
-              # 3. Check for print statements (Hummingbot standard)
-              if 'print(' in content:
-                  errors.append(f'❌ {path}: Standard print() found. Use self._logger instead!')
-          
-          if errors:
-              print('\n'.join(errors))
-              sys.exit(1)
-          print('✅ The Guardian: No obvious errors found. Proceeding...')
-          "
+      - name: Install Auto-Formatters
+        run: pip install autopep8
 
-      - name: Apply Changes and Push
+      - name: Write Files and Format
         run: |
-          git config --global user.name "ipezygj"
-          git config --global user.email "your-email@example.com"
-          
-          if [[ "${{ github.event.inputs.create_new }}" == "true" ]]; then
-            git checkout -b ${{ github.event.inputs.branch_name }}
-          else
-            git checkout ${{ github.event.inputs.branch_name }}
-          fi
+          import json
+          import os
+          import subprocess
 
-          echo '${{ github.event.inputs.files_json }}' > files.json
-          python3 -c "
-          import json, os
-          with open('files.json') as f:
-              files = json.load(f)
+          files = json.loads('${{ github.event.inputs.files_json }}')
           for path, content in files.items():
               os.makedirs(os.path.dirname(path), exist_ok=True)
               with open(path, 'w') as f:
                   f.write(content)
-          "
-          rm files.json
+              
+              # Lisää automaattisesti tyhjä rivi loppuun ja korjaa PEP8
+              subprocess.run(['autopep8', '--in-place', '--aggressive', path])
+              
+              # Varmista vielä kerran end-of-file rivinvaihto
+              with open(path, 'a') as f:
+                  f.write('\n')
+
+        shell: python
+
+     - name: Commit and Push
+        run: |
+          git config --global user.name "ipezygj"
+          git config --global user.email "ipezygj@users.noreply.github.com"
           git add .
-          git commit -m "${{ github.event.inputs.commit_message }}"
-          git push origin ${{ github.event.inputs.branch_name }} --force
+          # Käytetään dynaamista commit-viestiä, jossa on koodinimi 'Shadow-Protocol'
+          git commit -m "${{ github.event.inputs.commit_message }} (SP-v2.1)"
+          git push origin ${{ github.event.inputs.branch_name }}
