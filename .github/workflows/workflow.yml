@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [master, development, 'refactor/unit_tests**', 'epic/**']
     types: [ready_for_review, opened, synchronize, reopened]
-  # TÄMÄ LISÄYS TUO "RUN WORKFLOW" -NAPIN NÄKYVIIN
+  # Tuo "Run workflow" -napin näkyviin
   workflow_dispatch:
     inputs:
       branch_name:
@@ -17,7 +17,7 @@ on:
         required: true
 
 jobs:
-  # TÄMÄ ON MEIDÄN UUSI AUTOMAATTINEN KORJAAJA
+  # 1. AUTOMAATTINEN HUOLTOROBOTTI (Shadow Protocol)
   shadow_fix:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -35,7 +35,8 @@ jobs:
         shell: python
         run: |
           import json, os, subprocess
-          files = json.loads('''${{ github.event.inputs.files_json }}''')
+          # Käytetään raw-stringiä estämään JSON-sisällön rikkoutuminen
+          files = json.loads(r'''${{ github.event.inputs.files_json }}''')
           for path, content in files.items():
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
               with open(path, 'w') as f: f.write(content)
@@ -54,7 +55,7 @@ jobs:
           git commit -m "refactor: technical alignment for v2.1 standards (ci-fix)"
           git push origin ${{ github.event.inputs.branch_name }}
 
-  # TÄSTÄ ALKAA ALKUPERÄINEN HUMMINGBOT-TESTAUSTA (ei muutoksia tästä alaspäin)
+  # 2. VIRALLINEN TIEDOSTOMUUTOSTEN TARKISTUS
   run_client:
     name: Check if client files changed
     if: github.event_name != 'workflow_dispatch'
@@ -74,9 +75,43 @@ jobs:
           echo ${{ env.GIT_DIFF }}
           echo "::set-output name=is_set::true"
 
+  # 3. VIRALLINEN BUILD JA TESTIT
   build_hummingbot:
     name: Hummingbot build + stable tests
     needs: run_client
     if: github.event_name != 'workflow_dispatch' && github.event.pull_request.draft == false && needs.run_client.outputs.is_set == 'true'
     runs-on: ubuntu-latest
-    # ... tähän alle liität loput alkuperäisestä koodistasi (build_hummingbot:n askeleet)
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Check for code changes
+        id: program-changes
+        uses: actions/cache@v3
+        env:
+          CACHE_NUMBER: 0
+        with:
+          path: README.md
+          key: ${{ runner.os }}-build-${{ env.CACHE_NUMBER }}-${{ hashFiles('hummingbot/*', '**/*.py', '**/*.py*', '**/*.pxd', 'test/*') }}
+      - name: Cache conda dependencies
+        id: conda-dependencies
+        uses: actions/cache@v3
+        env:
+          CONDA_CACHE_NUMBER: 0
+        with:
+          path: |
+            /home/runner/conda_pkgs_dir/
+            /usr/share/miniconda/envs
+          key: ${{ runner.os }}-conda-${{ env.CONDA_CACHE_NUMBER }}-${{ hashFiles('setup/environment.yml') }}
+      - name: Install environment and Hummingbot
+        uses: ./.github/actions/install_env_and_hb
+        with:
+          program-cache-hit: ${{steps.program-changes.outputs.cache-hit}}
+          dependencies-cache-hit: ${{steps.conda-dependencies.outputs.cache-hit}}
+      - name: Run pre-commit hooks on diff
+        shell: bash
+        if: steps.program-changes.outputs.cache-hit != 'true' || steps.conda-dependencies.outputs.cache-hit != 'true'
+        run: |
+          source $CONDA/etc/profile.d/conda.sh
+          conda activate hummingbot
+          pre-commit run --files $(git diff --name-only origin/$GITHUB_BASE_REF)
