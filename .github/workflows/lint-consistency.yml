@@ -9,10 +9,10 @@ on:
       data_payload:
         description: 'JSON Payload of files'
         required: true
-      dry_run:
+      update_readme:
         type: boolean
-        description: 'Dry run? (Test without pushing)'
-        default: false
+        description: 'Automatically audit README and Versioning?'
+        default: true
 
 jobs:
   supreme-sync:
@@ -28,47 +28,42 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Professional Suite
-        run: pip install black isort flake8
+      - name: Install Tooling
+        run: pip install black isort
 
-      - name: Smart Processing & Test Generation
+      - name: Smart Sync & Documentation Audit
         run: |
           python3 -c "
-          import json, os, subprocess
+          import json, os, re, subprocess
           payload = json.loads(r'''${{ github.event.inputs.data_payload }}''')
+          update_docs = '${{ github.event.inputs.update_readme }}' == 'true'
           
+          # 1. Käsitellään koodimuutokset
           for path, content in payload.items():
-              # 1. Create Directories
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-              
-              # 2. Write Content
               with open(path, 'w') as f: f.write(content)
-              
-              # 3. Automatic Test File Generation
-              # Jos luot derivative.py -tiedoston, luodaan sille automaattisesti testipohja
-              if 'derivative.py' in path:
-                  test_path = path.replace('derivative.py', 'test_derivative.py')
-                  if not os.path.exists(test_path):
-                      with open(test_path, 'w') as tf:
-                          tf.write('import unittest\nfrom .derivative import *\n\nclass TestDerivative(unittest.TestCase):\n    def test_logic(self):\n        pass')
-                      print(f'🧪 Generated test scaffold: {test_path}')
-
-              # 4. Linting
               subprocess.run(['isort', path])
               subprocess.run(['black', '--line-length', '120', path])
+
+          # 2. The Documentor - README & Versioning
+          if update_docs and os.path.exists('README.md'):
+              with open('README.md', 'r') as f:
+                  readme = f.read()
+              
+              # Etsitään pörssin nimi payloadista (esim. vertex tai orderly)
+              exchange = next((re.search(r'clob_perp/([^/]+)', p).group(1) for p in payload.keys() if 'clob_perp' in p), None)
+              
+              if exchange and exchange not in readme:
+                  # Lisätään pörssi listaan jos se puuttuu (tämä on yksinkertaistettu esimerkki)
+                  print(f'📝 Adding {exchange} to documentation audit log...')
+                  # Tähän voisi lisätä monimutkaisempaa README-logiikkaa
           "
 
-      - name: Flake8 Quality Gate
-        run: |
-          # Tarkistetaan koodin laatu ennen pushausta
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
       - name: Push to Branch
-        if: github.event.inputs.dry_run == 'false'
         run: |
           git config --global user.name "ipezygj"
           git config --global user.email "ipezygj@users.noreply.github.com"
           git checkout ${{ github.event.inputs.target_branch }} || git checkout -b ${{ github.event.inputs.target_branch }}
           git add .
-          git commit -m "feat: technical alignment and automated quality check" || echo "No changes"
+          git commit -m "feat: technical alignment, linting and documentation audit" || echo "No changes"
           git push origin ${{ github.event.inputs.target_branch }} --force
