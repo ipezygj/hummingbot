@@ -1,4 +1,4 @@
-name: ci
+name: lint-consistency.yml
 
 on:
   push:
