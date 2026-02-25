@@ -1,1 +1,3 @@
-# Hyperliquid Gateway Connector
+from .hyperliquid_derivative import HyperliquidDerivative
+
+__all__ = ["HyperliquidDerivative"]
