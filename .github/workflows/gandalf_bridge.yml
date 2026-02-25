@@ -1,43 +1,40 @@
-name: Gandalfs Bridge
+name: Gandalfs Bridge 2.0
 
 on:
   workflow_dispatch:
     inputs:
-      task_name:
-        description: "Task"
+      commit_message:
+        description: 'Commit Message (Professional format: feat/fix/refactor)'
         required: true
-        type: string
-      code_content:
-        description: "Code"
+        default: 'refactor: technical update and code optimization'
+      files_json:
+        description: 'JSON format: {"path/to/file.py": "code content", "path2.py": "code2"}'
         required: true
-        type: string
-      file_path:
-        description: "Path"
-        required: true
-        type: string
-
-permissions:
-  contents: write
 
 jobs:
-  build:
+  bridge_update:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Write file
+      - name: Update Multiple Files
         run: |
-          mkdir -p "$(dirname "${{ github.event.inputs.file_path }}")"
-          cat << 'EOF' > "${{ github.event.inputs.file_path }}"
-          ${{ github.event.inputs.code_content }}
-          EOF
-
-      - name: Commit and push
+          echo '${{ github.event.inputs.files_json }}' > files.json
+          python3 -c "
+          import json, os
+          with open('files.json') as f:
+              data = json.load(f)
+              for path, content in data.items():
+                  os.makedirs(os.path.dirname(path), exist_ok=True)
+                  with open(path, 'w') as out:
+                      out.write(content)
+          "
+      
+      - name: Commit and Push
         run: |
-          git config user.name "bot"
-          git config user.email "bot@bot.com"
+          git config --global user.name "Gandalfs Bridge"
+          git config --global user.email "bridge@gandalf.ai"
           git add .
-          git commit -m "update" || exit 0
+          git commit -m "${{ github.event.inputs.commit_message }}"
           git push
