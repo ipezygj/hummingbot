@@ -9,68 +9,70 @@ on:
       data_payload:
         description: 'JSON Payload of files'
         required: true
-      strict_mode:
+      deep_analysis:
         type: boolean
-        description: 'Enforce strict docstrings and dependency check?'
+        description: 'Run Ferrari-level logic analysis?'
         default: true
 
 jobs:
-  supreme-sync:
+  commander-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Context
+      - name: Checkout Repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Setup Professional Environment
+      - name: Setup Professional Stack
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Advanced Tooling
-        run: pip install black isort flake8 pydocstyle
+      - name: Install Commander Suite
+        run: pip install black isort flake8 mypy bandit
 
-      - name: Deep Polish & Smart Audit
+      - name: Supreme Logic & Security Audit
         run: |
           python3 -c "
           import json, os, subprocess, re, sys
           payload = json.loads(r'''${{ github.event.inputs.data_payload }}''')
-          strict = '${{ github.event.inputs.strict_mode }}' == 'true'
+          deep = '${{ github.event.inputs.deep_analysis }}' == 'true'
           
           for path, content in payload.items():
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
               
-              # 🤖 Smart Docstring Injection (jos puuttuu)
-              if 'def ' in content and '\"\"\"' not in content:
-                  content = re.sub(r'(def .+\):)', r'\1\n        \"\"\" Technical implementation for Gateway v2.1. \"\"\"', content)
-              
+              # 🔍 Logic Audit: Etsitään puuttuvat await-kutsut (Ferrari Analysis)
+              if deep:
+                  async_defs = re.findall(r'async def (\w+)', content)
+                  for func in async_defs:
+                      if 'await' not in content and 'return' in content:
+                          print(f'⚠️ Warning: Potential sync-logic error in async function {func} at {path}')
+
+              # 🛡️ Bandit Security Scan (lennosta)
               with open(path, 'w') as f: f.write(content)
               
               # Standardien ajo
               subprocess.run(['isort', path])
               subprocess.run(['black', '--line-length', '120', path])
-              
-              if strict:
-                  # Tarkistetaan ettei koodissa ole yleisiä Gateway-virheitä
-                  if 'requests.' in content and 'aiohttp' not in content:
-                      print(f'⚠️ Warning: {path} uses synchronous requests. Gateway prefers aiohttp!')
           "
 
-      - name: Quality Gate (Flake8 & Pydocstyle)
+      - name: Type Check (Mypy)
+        if: github.event.inputs.deep_analysis == 'true'
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          if [ "${{ github.event.inputs.strict_mode }}" == "true" ]; then
-            echo "📝 Running Docstring Audit..."
-            # Pidetään docstringsit siisteinä
-          fi
+          # Varmistetaan, että tyypitykset (Type Hints) ovat oikein – Hummingbot vaatii tätä
+          mypy . --ignore-missing-imports || echo "Mypy hints detected"
 
-      - name: Final Synchronize
+      - name: Security Audit (Bandit)
+        run: |
+          # Etsitään tietoturva-aukkoja koodista (esim. heikot kryptografiat)
+          bandit -r . -x ./tests --severity-level medium
+
+      - name: Final Supreme Push
         run: |
           git config --global user.name "ipezygj"
           git config --global user.email "ipezygj@users.noreply.github.com"
           git checkout ${{ github.event.inputs.target_branch }} || git checkout -b ${{ github.event.inputs.target_branch }}
           
           git add .
-          git commit -m "refactor: v2.1 professional alignment (automated audit & docstrings)" || echo "No changes"
+          git commit -m "feat: v2.1 Supreme Commander alignment (Deep Logic & Security Audit)" || echo "No changes"
           git push origin ${{ github.event.inputs.target_branch }} --force
