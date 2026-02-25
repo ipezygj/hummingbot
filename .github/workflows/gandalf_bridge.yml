@@ -1,14 +1,22 @@
-name: Gandalfs Bridge 2.0
+name: Gandalfs Bridge 3.0
 
 on:
   workflow_dispatch:
     inputs:
-      commit_message:
-        description: 'Commit Message (Professional format: feat/fix/refactor)'
+      branch_name:
+        description: 'Branch to work on (e.g., master, feat/hyperliquid, feat/orderly)'
         required: true
-        default: 'refactor: technical update and code optimization'
+        default: 'master'
+      create_new_branch:
+        description: 'Create this branch if it does not exist? (true/false)'
+        required: true
+        default: 'false'
+      commit_message:
+        description: 'Commit Message (Professional format)'
+        required: true
+        default: 'refactor: technical update'
       files_json:
-        description: 'JSON format: {"path/to/file.py": "code content", "path2.py": "code2"}'
+        description: 'JSON format: {"path": "content"}'
         required: true
 
 jobs:
@@ -17,6 +25,19 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Branch
+        run: |
+          git config --global user.name "Gandalfs Bridge"
+          git config --global user.email "bridge@gandalf.ai"
+          
+          if [ "${{ github.event.inputs.create_new_branch }}" == "true" ]; then
+            git checkout -b ${{ github.event.inputs.branch_name }}
+          else
+            git checkout ${{ github.event.inputs.branch_name }}
+          fi
 
       - name: Update Multiple Files
         run: |
@@ -33,8 +54,6 @@ jobs:
       
       - name: Commit and Push
         run: |
-          git config --global user.name "Gandalfs Bridge"
-          git config --global user.email "bridge@gandalf.ai"
           git add .
           git commit -m "${{ github.event.inputs.commit_message }}"
-          git push
+          git push origin ${{ github.event.inputs.branch_name }}
