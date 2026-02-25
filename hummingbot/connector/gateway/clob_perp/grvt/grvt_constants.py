@@ -1,1 +1,6 @@
-from typing import Dict  # Exchange Connection Info EXCHANGE_NAME: str = "grvt" DEFAULT_DOMAIN: str = "grvt_testnet"  # API Endpoints REST_URLS: Dict[str, str] = {     "grvt_testnet": "https://api.testnet.grvt.io" }  WSS_URLS: Dict[str, str] = {     "grvt_testnet": "wss://api.testnet.grvt.io/ws" }  # Connector Settings HEARTBEAT_INTERVAL_THRESHOLD: float = 30.0 UPDATE_ORDER_STATUS_INTERVAL: float = 10.0
+from typing import Dict
+
+EXCHANGE_NAME = "grvt"
+DEFAULT_DOMAIN = "grvt_mainnet"
+REST_URLS: Dict[str, str] = {"grvt_mainnet": "https://api.grvt.io/v1"}
+WS_URL: str = "wss://api.grvt.io/ws"

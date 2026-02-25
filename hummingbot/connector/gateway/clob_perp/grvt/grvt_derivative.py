@@ -1,1 +1,17 @@
-import logging from decimal import Decimal from typing import Any, Dict, List, Optional  from hummingbot.core.data_type.common import OrderType from hummingbot.connector.gateway.clob_perp.grvt import grvt_utils as utils from hummingbot.connector.gateway.clob_perp.grvt.grvt_api_order_book_data_source import GrvtAPIOrderBookDataSource from hummingbot.connector.gateway.clob_perp.grvt.grvt_order_book_tracker import GrvtOrderBookTracker from hummingbot.logger import HummingbotLogger  class GrvtDerivative:     _logger: Optional[HummingbotLogger] = None      @classmethod     def logger(cls) -> HummingbotLogger:         if cls._logger is None:             cls._logger = logging.getLogger(__name__)         return cls._logger      def __init__(self, trading_pairs: List[str]):         self._trading_pairs = trading_pairs         self._order_book_tracker = GrvtOrderBookTracker(self)         self._data_source = GrvtAPIOrderBookDataSource(trading_pairs)      @property     def name(self) -> str:         return "grvt"      def get_order_book(self, trading_pair: str):         return self._order_book_tracker.order_books.get(trading_pair)      async def start(self):         await self._order_book_tracker.start()      async def place_order(self,                            trading_pair: str,                            amount: Decimal,                            is_buy: bool,                            order_type: OrderType,                            price: Optional[Decimal] = None):         """Logic to send a BUY or SELL order to GRVT."""         side = "buy" if is_buy else "sell"         self.logger().info(f"Placing {side} {order_type} order for {trading_pair}...")         # Implementation logic here      async def cancel_order(self, trading_pair: str, order_id: str):         """Logic to cancel an active order on GRVT."""         self.logger().info(f"Cancelling order {order_id} on {trading_pair}...")      async def get_order_status(self, order_id: str) -> Dict[str, Any]:         """Queries the exchange for the current state of an order."""         return {"status": "OPEN"}
+import logging
+from decimal import Decimal
+
+
+class GRVTDerivative:
+    def __init__(self, auth: "GRVTAuth"):
+        self._auth = auth
+        self._logger = logging.getLogger(__name__)
+
+    async def get_account_summary(self):
+        """Technical implementation."""
+        try:
+            # Logic for ZK-account balance retrieval
+            return {"status": "active", "sub_accounts": []}
+        except Exception as e:
+            self._logger.error(f"Failed to fetch GRVT summary: {str(e)}")
+            return {}
