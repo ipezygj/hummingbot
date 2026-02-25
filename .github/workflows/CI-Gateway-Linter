@@ -1,0 +1,85 @@
+name: CI-Gateway-Utility
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: 'Target Branch'
+        required: true
+      commit_message:
+        description: 'Commit Message'
+        required: true
+      files_json:
+        description: 'Files to write (JSON)'
+        required: true
+
+jobs:
+  bridge_update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.branch_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Auto-Formatters
+        run: pip install autopep8
+
+      - name: Write Files and Format
+        run: |
+          import json
+          import os
+          import subprocess
+
+          files = json.loads('''${{ github.event.inputs.files_json }}''')
+          for path, content in files.items():
+              # 1. Luo kansiorakenne ja varmista __init__.py
+              dir_name = os.path.dirname(path)
+              if dir_name:
+                  os.makedirs(dir_name, exist_ok=True)
+                  init_file = os.path.join(dir_name, '__init__.py')
+                  if not os.path.exists(init_file):
+                      with open(init_file, 'w') as f:
+                          f.write('"""\nGateway module initialization.\n"""\n')
+
+              # 2. Kirjoita varsinainen koodi
+              with open(path, 'w') as f:
+                  f.write(content)
+              
+              # 3. Autopep8-muotoilu (Standardi siivous)
+              subprocess.run(['autopep8', '--in-place', '--aggressive', '--aggressive', path])
+              
+              # 4. Viimeistely: Docstring ja rivinvaihto
+              with open(path, 'r+') as f:
+                  lines = f.readlines()
+                  if lines and not lines[0].startswith('"""'):
+                      lines.insert(0, '"""\nTechnical implementation for Hummingbot Gateway V2.1.\n"""\n')
+                  
+                  # Varmistetaan standardi rivinvaihto loppuun
+                  final_content = "".join(lines).rstrip() + "\n"
+                  f.seek(0)
+                  f.write(final_content)
+                  f.truncate()
+        shell: python
+
+      - name: Commit and Push (System Logic)
+        run: |
+          git config --global user.name "ipezygj"
+          git config --global user.email "ipezygj@users.noreply.github.com"
+          git add .
+          
+          # Geneerinen viestitys (v2.1 viittaa Gateway-versioon)
+          RAW_MSG="${{ github.event.inputs.commit_message }}"
+          if git diff --cached --name-status | grep -q "^A"; then
+            FINAL_MSG="feat: $RAW_MSG (v2.1)"
+          else
+            FINAL_MSG="refactor: $RAW_MSG (v2.1)"
+          fi
+          
+          git commit -m "$FINAL_MSG"
+          git push origin ${{ github.event.inputs.branch_name }}
