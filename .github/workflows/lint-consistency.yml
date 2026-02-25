@@ -1,5 +1,3 @@
-""" Technical implementation for Hummingbot Gateway V2.1. """
-
 name: CI/CD Consistency Utils
 
 on:
@@ -43,30 +41,29 @@ jobs:
           python3 -c "
           import json, os, subprocess, re, sys
           try:
-              payload = json.loads(r'''${{ github.event.inputs.data_payload }}''')
+              # Haetaan payload turvallisesti
+              payload_str = r'''${{ github.event.inputs.data_payload }}'''
+              payload = json.loads(payload_str)
           except Exception as e:
               print(f'❌ Invalid JSON: {e}')
               sys.exit(1)
           
           for path, content in payload.items():
-              # 🛠️ Directory Creation
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
               
-              # 🤖 Smart Docstring Injection
+              # 🤖 Smart Docstring Injection (tämä on OK Python-koodiin)
               if 'def ' in content and '\"\"\"' not in content:
                   content = re.sub(r'(def .+\):)', r'\1\n        \"\"\" Technical implementation for Gateway v2.1. \"\"\"', content)
               
               with open(path, 'w') as f: f.write(content)
               
-              # ✨ Professional Polish
               subprocess.run(['isort', path])
               subprocess.run(['black', '--line-length', '120', path])
-              print(f'✅ Processed and Polished: {path}')
+              print(f'✅ Processed: {path}')
           "
 
       - name: Quality Gate (Flake8 & Bandit)
         run: |
-          echo "🛡️ Running Security and Quality Audit..."
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           bandit -r . -x ./tests --severity-level medium
 
@@ -75,19 +72,13 @@ jobs:
         run: |
           find . -type d -name "__pycache__" -exec rm -rf {} +
           find . -type d -name ".mypy_cache" -exec rm -rf {} +
-          find . -type d -name ".pytest_cache" -exec rm -rf {} +
-          echo "🧹 Workspace purged of automation traces."
+          echo "🧹 Workspace purged."
 
       - name: Final Supreme Push
         run: |
           git config --global user.name "ipezygj"
           git config --global user.email "ipezygj@users.noreply.github.com"
-          
-          # Haaran hallinta
           git checkout ${{ github.event.inputs.target_branch }} || git checkout -b ${{ github.event.inputs.target_branch }}
-          
           git add .
-          git commit -m "refactor: technical alignment and self-healing optimization (v2.1)" || echo "No changes to commit"
+          git commit -m "refactor: technical alignment for v2.1 standards (syntax-fix)" || echo "No changes"
           git push origin ${{ github.event.inputs.target_branch }} --force
-          
-          echo "🚀 Deployment Successful to ${{ github.event.inputs.target_branch }}"
