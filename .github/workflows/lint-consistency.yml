@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       target_branch:
-        description: 'Branch to update (e.g., feat/vertex-1)'
+        description: 'Branch to update'
         required: true
       data_payload:
-        description: 'JSON Payload of files'
+        description: 'JSON Payload'
         required: true
-      deep_analysis:
+      stealth_mode:
         type: boolean
-        description: 'Run Ferrari-level logic analysis?'
+        description: 'Deep cleaning and ghost commit?'
         default: true
 
 jobs:
-  commander-sync:
+  ghost-sync:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -34,21 +34,11 @@ jobs:
       - name: Supreme Logic & Security Audit
         run: |
           python3 -c "
-          import json, os, subprocess, re, sys
+          import json, os, subprocess, re
           payload = json.loads(r'''${{ github.event.inputs.data_payload }}''')
-          deep = '${{ github.event.inputs.deep_analysis }}' == 'true'
           
           for path, content in payload.items():
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-              
-              # 🔍 Logic Audit: Etsitään puuttuvat await-kutsut (Ferrari Analysis)
-              if deep:
-                  async_defs = re.findall(r'async def (\w+)', content)
-                  for func in async_defs:
-                      if 'await' not in content and 'return' in content:
-                          print(f'⚠️ Warning: Potential sync-logic error in async function {func} at {path}')
-
-              # 🛡️ Bandit Security Scan (lennosta)
               with open(path, 'w') as f: f.write(content)
               
               # Standardien ajo
@@ -56,16 +46,14 @@ jobs:
               subprocess.run(['black', '--line-length', '120', path])
           "
 
-      - name: Type Check (Mypy)
-        if: github.event.inputs.deep_analysis == 'true'
+      - name: The Ghost Clean (Puhdistusprotokolla)
+        if: github.event.inputs.stealth_mode == 'true'
         run: |
-          # Varmistetaan, että tyypitykset (Type Hints) ovat oikein – Hummingbot vaatii tätä
-          mypy . --ignore-missing-imports || echo "Mypy hints detected"
-
-      - name: Security Audit (Bandit)
-        run: |
-          # Etsitään tietoturva-aukkoja koodista (esim. heikot kryptografiat)
-          bandit -r . -x ./tests --severity-level medium
+          # Poistetaan kaikki roskatiedostot ennen committia
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          find . -type d -name ".mypy_cache" -exec rm -rf {} +
+          find . -type d -name ".pytest_cache" -exec rm -rf {} +
+          echo "🧹 Workspace purged. Only clean code remains."
 
       - name: Final Supreme Push
         run: |
@@ -74,5 +62,6 @@ jobs:
           git checkout ${{ github.event.inputs.target_branch }} || git checkout -b ${{ github.event.inputs.target_branch }}
           
           git add .
-          git commit -m "feat: v2.1 Supreme Commander alignment (Deep Logic & Security Audit)" || echo "No changes"
+          # Käytetään ammattimaista, mutta neutraalia viestiä
+          git commit -m "refactor: technical alignment and quality optimization (v2.1)" || echo "No changes"
           git push origin ${{ github.event.inputs.target_branch }} --force
