@@ -9,9 +9,13 @@ on:
       data_payload:
         description: 'JSON Payload of files'
         required: true
+      apply_standards:
+        type: boolean
+        description: 'Run Black, isort & PEP8 polish?'
+        default: true
       update_readme:
         type: boolean
-        description: 'Automatically audit README and Versioning?'
+        description: 'Audit README and Versioning?'
         default: true
 
 jobs:
@@ -29,41 +33,47 @@ jobs:
           python-version: '3.10'
 
       - name: Install Tooling
-        run: pip install black isort
+        run: pip install black isort flake8
 
-      - name: Smart Sync & Documentation Audit
+      - name: Smart Sync & Professional Polish
         run: |
           python3 -c "
-          import json, os, re, subprocess
+          import json, os, subprocess, re
           payload = json.loads(r'''${{ github.event.inputs.data_payload }}''')
-          update_docs = '${{ github.event.inputs.update_readme }}' == 'true'
+          apply_std = '${{ github.event.inputs.apply_standards }}' == 'true'
           
-          # 1. Käsitellään koodimuutokset
+          summary = []
           for path, content in payload.items():
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
               with open(path, 'w') as f: f.write(content)
-              subprocess.run(['isort', path])
-              subprocess.run(['black', '--line-length', '120', path])
+              
+              if apply_std:
+                  subprocess.run(['isort', path])
+                  subprocess.run(['black', '--line-length', '120', path])
+                  summary.append(f'✅ Polished: {path}')
+              else:
+                  summary.append(f'📝 Updated: {path}')
 
-          # 2. The Documentor - README & Versioning
-          if update_docs and os.path.exists('README.md'):
-              with open('README.md', 'r') as f:
-                  readme = f.read()
-              
-              # Etsitään pörssin nimi payloadista (esim. vertex tai orderly)
-              exchange = next((re.search(r'clob_perp/([^/]+)', p).group(1) for p in payload.keys() if 'clob_perp' in p), None)
-              
-              if exchange and exchange not in readme:
-                  # Lisätään pörssi listaan jos se puuttuu (tämä on yksinkertaistettu esimerkki)
-                  print(f'📝 Adding {exchange} to documentation audit log...')
-                  # Tähän voisi lisätä monimutkaisempaa README-logiikkaa
+          # Tallennetaan yhteenveto lokiin
+          with open('sync_summary.txt', 'w') as f:
+              f.write('\n'.join(summary))
           "
 
-      - name: Push to Branch
+      - name: Security & Quality Gate
+        run: |
+          echo "🛡️ Running Flake8 quality checks..."
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Push & Log
         run: |
           git config --global user.name "ipezygj"
           git config --global user.email "ipezygj@users.noreply.github.com"
           git checkout ${{ github.event.inputs.target_branch }} || git checkout -b ${{ github.event.inputs.target_branch }}
+          
           git add .
-          git commit -m "feat: technical alignment, linting and documentation audit" || echo "No changes"
+          # Luodaan tekninen commit-viesti, joka sisältää tiedon automaattisesta tarkistuksesta
+          git commit -m "refactor: technical alignment for v2.1 (automated polish & quality gate)" || echo "No changes"
           git push origin ${{ github.event.inputs.target_branch }} --force
+          
+          echo "🚀 Sync complete! Summary:"
+          cat sync_summary.txt
