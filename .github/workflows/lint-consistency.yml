@@ -41,7 +41,6 @@ jobs:
           python3 -c "
           import json, os, subprocess, re, sys
           try:
-              # Haetaan payload turvallisesti
               payload_str = r'''${{ github.event.inputs.data_payload }}'''
               payload = json.loads(payload_str)
           except Exception as e:
@@ -51,7 +50,6 @@ jobs:
           for path, content in payload.items():
               os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
               
-              # 🤖 Smart Docstring Injection (tämä on OK Python-koodiin)
               if 'def ' in content and '\"\"\"' not in content:
                   content = re.sub(r'(def .+\):)', r'\1\n        \"\"\" Technical implementation for Gateway v2.1. \"\"\"', content)
               
