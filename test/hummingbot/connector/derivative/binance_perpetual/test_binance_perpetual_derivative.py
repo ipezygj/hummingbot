@@ -2074,6 +2074,70 @@ class BinancePerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
         self.assertTrue("OID1" not in self.exchange._order_tracker._in_flight_orders)
         self.assertTrue(any(record.levelname == "NETWORK" for record in self.log_records))
 
+    @aioresponses()
+    async def test_gtx_rejection_preserves_failure_event_without_network_warning(self, req_mock):
+        self._simulate_trading_rules_initialized()
+        failure_logger = EventLogger()
+        self.exchange.add_listener(MarketEvent.OrderFailure, failure_logger)
+        url = re.compile(f"^{re.escape(web_utils.private_rest_url(CONSTANTS.ORDER_URL, domain=self.domain))}")
+        response = {
+            "code": -5022,
+            "msg": "Due to the order could not be executed as maker, the Post Only order will be rejected.",
+        }
+        for side in (TradeType.BUY, TradeType.SELL):
+            with self.subTest(side=side):
+                order_id = f"GTX{side.value}"
+                self.log_records.clear()
+                failure_logger.clear()
+                req_mock.post(url, status=400, body=json.dumps(response))
+                await self.exchange._create_order(
+                    trade_type=side, order_id=order_id, trading_pair=self.trading_pair,
+                    amount=Decimal("10000"), order_type=OrderType.LIMIT_MAKER,
+                    position_action=PositionAction.OPEN, price=Decimal("1010"))
+                await asyncio.sleep(0)
+
+                self.assertNotIn(order_id, self.exchange.in_flight_orders)
+                self.assertEqual(1, len(failure_logger.event_log))
+                event = failure_logger.event_log[0]
+                self.assertEqual(order_id, event.order_id)
+                self.assertEqual(OrderType.LIMIT_MAKER, event.order_type)
+                self.assertIn("-5022", event.error_message)
+                self.assertEqual("OSError", event.error_type)
+                warnings = [r for r in self.log_records if r.levelname == "WARNING"]
+                self.assertEqual(1, len(warnings))
+                self.assertIn("would have executed immediately", warnings[0].getMessage())
+                self.assertIsNone(warnings[0].exc_info)
+                self.assertFalse(any(r.levelname == "NETWORK" for r in self.log_records))
+                self.assertFalse(any("Check API key" in r.getMessage() for r in self.log_records))
+                self.assertTrue(any(r.levelname == "DEBUG" and r.exc_info for r in self.log_records))
+
+    def test_gtx_rejection_does_not_match_other_errors(self):
+        for message in (
+            '{"code":-5021,"msg":"FOK order has been rejected."}',
+            '{"code":-2010,"msg":"Account has insufficient balance."}',
+            '{"code":-5022,"msg":"Unrecognized rejection"}',
+            "Connection reset by peer",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(self.exchange._is_maker_only_rejection(IOError(message)))
+
+    @aioresponses()
+    async def test_gtx_response_for_non_maker_order_keeps_network_error(self, req_mock):
+        self._simulate_trading_rules_initialized()
+        url = re.compile(f"^{re.escape(web_utils.private_rest_url(CONSTANTS.ORDER_URL, domain=self.domain))}")
+        req_mock.post(url, status=400, body=json.dumps({
+            "code": -5022,
+            "msg": "Due to the order could not be executed as maker, the Post Only order will be rejected.",
+        }))
+        await self.exchange._create_order(
+            trade_type=TradeType.BUY, order_id="LIMIT1", trading_pair=self.trading_pair,
+            amount=Decimal("10000"), order_type=OrderType.LIMIT,
+            position_action=PositionAction.OPEN, price=Decimal("1010"))
+        await asyncio.sleep(0)
+        self.assertNotIn("LIMIT1", self.exchange.in_flight_orders)
+        self.assertTrue(any(r.levelname == "NETWORK" for r in self.log_records))
+        self.assertFalse(any("maker-only protection" in r.getMessage() for r in self.log_records))
+
     async def test_create_order_min_order_size_failure(self):
         self._simulate_trading_rules_initialized()
         margin_asset = self.quote_asset

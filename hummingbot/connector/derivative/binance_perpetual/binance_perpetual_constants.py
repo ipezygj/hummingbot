@@ -149,4 +149,6 @@ UNKNOWN_ORDER_ERROR_CODE = -2011
 # A post-only (LIMIT_MAKER) order that would have crossed the book and taken liquidity
 MAKER_ONLY_REJECTION_ERROR_CODE = -2010
 MAKER_ONLY_REJECTION_MESSAGE = "Order would immediately match and take"
+GTX_ORDER_REJECTION_ERROR_CODE = -5022
+GTX_ORDER_REJECTION_MESSAGE = "Post Only order will be rejected"
 UNKNOWN_ORDER_MESSAGE = "Unknown order sent"

@@ -308,6 +308,11 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
         )
         return is_time_synchronizer_related
 
+    def _is_maker_only_rejection(self, exception: Exception) -> bool:
+        # _place_order wraps the exchange rejection in a ValueError.
+        error = str(exception.__cause__ or exception)
+        return "INVALID_ORDER" in error and "Order would immediately match and take" in error
+
     def _is_order_not_found_during_status_update_error(self, status_update_exception: Exception) -> bool:
         return str(CONSTANTS.ORDER_NOT_EXIST_ERROR_CODE) in str(
             status_update_exception
@@ -403,7 +408,7 @@ class BackpackPerpetualDerivative(PerpetualDerivativePyBase):
 
             if is_post_only_rejection:
                 side = "BUY" if trade_type is TradeType.BUY else "SELL"
-                self.logger().warning(
+                self.logger().debug(
                     f"LIMIT_MAKER {side} order for {trading_pair} rejected: "
                     f"Order price {price} would immediately match and take liquidity. "
                     f"LIMIT_MAKER orders can only be placed as maker orders (post-only). "
