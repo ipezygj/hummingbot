@@ -19,6 +19,45 @@ from hummingbot.core.event.events import MarketOrderFailureEvent
 
 
 class BackpackExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTests):
+    @aioresponses()
+    def test_maker_rejection_preserves_failure_event_without_network_warning(self, mock_api):
+        self._simulate_trading_rules_initialized()
+        for side in (TradeType.BUY, TradeType.SELL):
+            with self.subTest(side=side):
+                order_id = str(2200123 + side.value)
+                self.log_records.clear()
+                self.order_failure_logger.clear()
+                mock_api.post(self.order_creation_url, status=400, body=json.dumps({
+                    "code": "INVALID_ORDER", "message": "Order would immediately match and take liquidity",
+                }))
+                self.async_run_with_timeout(self.exchange._create_order(
+                    trade_type=side, order_id=order_id, trading_pair=self.trading_pair,
+                    amount=Decimal("100"), order_type=OrderType.LIMIT_MAKER, price=Decimal("10000")))
+
+                self.assertNotIn(order_id, self.exchange.in_flight_orders)
+                self.assertEqual(1, len(self.order_failure_logger.event_log))
+                event = self.order_failure_logger.event_log[0]
+                self.assertEqual(order_id, event.order_id)
+                self.assertEqual(OrderType.LIMIT_MAKER, event.order_type)
+                self.assertEqual("ValueError", event.error_type)
+                self.assertIn("would immediately match", event.error_message)
+                warnings = [r for r in self.log_records if r.levelname == "WARNING"]
+                self.assertEqual(1, len(warnings))
+                self.assertIn("would have executed immediately", warnings[0].getMessage())
+                self.assertIsNone(warnings[0].exc_info)
+                self.assertFalse(any(r.levelname == "NETWORK" for r in self.log_records))
+                self.assertFalse(any("Check API key" in r.getMessage() for r in self.log_records))
+                self.assertTrue(any(r.levelname == "DEBUG" and r.exc_info for r in self.log_records))
+
+    def test_maker_rejection_does_not_match_other_errors(self):
+        for message in (
+            '{"code":"INVALID_ORDER","message":"Insufficient balance"}',
+            "Connection reset by peer",
+            "LIMIT_MAKER order would immediately match and take liquidity",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(self.exchange._is_maker_only_rejection(IOError(message)))
+
     @property
     def all_symbols_url(self):
         return web_utils.public_rest_url(path_url=CONSTANTS.EXCHANGE_INFO_PATH_URL, domain=self.exchange._domain)

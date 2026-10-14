@@ -1290,6 +1290,48 @@ class BackpackPerpetualDerivativeUnitTest(IsolatedAsyncioWrapperTestCase):
 
         self.assertIn("LIMIT_MAKER order would immediately match", str(context.exception))
 
+    @aioresponses()
+    async def test_maker_rejection_preserves_failure_event_without_network_warning(self, mock_api):
+        self._simulate_trading_rules_initialized()
+        url = re.compile(f"^{re.escape(web_utils.private_rest_url(CONSTANTS.ORDER_PATH_URL, domain=self.domain))}")
+        for side in (TradeType.BUY, TradeType.SELL):
+            with self.subTest(side=side):
+                order_id = str(2200123 + side.value)
+                self.log_records.clear()
+                self.order_failure_logger.clear()
+                mock_api.post(url, status=400, body=json.dumps({
+                    "code": "INVALID_ORDER", "message": "Order would immediately match and take liquidity",
+                }))
+                await self.exchange._create_order(
+                    trade_type=side, order_id=order_id, trading_pair=self.trading_pair,
+                    amount=Decimal("100"), order_type=OrderType.LIMIT_MAKER,
+                    position_action=PositionAction.OPEN, price=Decimal("10000"))
+                await asyncio.sleep(0)
+
+                self.assertNotIn(order_id, self.exchange.in_flight_orders)
+                self.assertEqual(1, len(self.order_failure_logger.event_log))
+                event = self.order_failure_logger.event_log[0]
+                self.assertEqual(order_id, event.order_id)
+                self.assertEqual(OrderType.LIMIT_MAKER, event.order_type)
+                self.assertEqual("ValueError", event.error_type)
+                self.assertIn("would immediately match", event.error_message)
+                warnings = [r for r in self.log_records if r.levelname == "WARNING"]
+                self.assertEqual(1, len(warnings))
+                self.assertIn("would have executed immediately", warnings[0].getMessage())
+                self.assertIsNone(warnings[0].exc_info)
+                self.assertFalse(any(r.levelname == "NETWORK" for r in self.log_records))
+                self.assertFalse(any("Check API key" in r.getMessage() for r in self.log_records))
+                self.assertTrue(any(r.levelname == "DEBUG" and r.exc_info for r in self.log_records))
+
+    def test_maker_rejection_does_not_match_other_errors(self):
+        for message in (
+            '{"code":"INVALID_ORDER","message":"Insufficient balance"}',
+            "Connection reset by peer",
+            "LIMIT_MAKER order would immediately match and take liquidity",
+        ):
+            with self.subTest(message=message):
+                self.assertFalse(self.exchange._is_maker_only_rejection(IOError(message)))
+
     async def test_position_update_via_websocket(self):
         """Test position update through websocket message"""
         self._simulate_trading_rules_initialized()
